@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const md = require('../md-ui.js');
 
 test('API: версия и публичные функции', () => {
-  assert.strictEqual(md.VERSION, 'v0.0.2');
+  assert.strictEqual(md.VERSION, 'v0.1.0');
   for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates']) {
     assert.strictEqual(typeof md[fn], 'function', fn);
   }
@@ -143,4 +143,49 @@ test('опции tabs через renderANSI не меняют порядок wid
   const res = md.renderANSI(st.ast, st, 50);
   assert.strictEqual(res.widx, 1);
   assert.ok(res.lines.join('\n').includes('Игра'));
+});
+
+test('var: блок состояния не рендерится и не попадает в фокус', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: var score 7\n', st);
+  assert.strictEqual(st.vars.score, 7);
+  assert.strictEqual(md.collectWidgets(st.ast).length, 0);
+  const res = md.renderANSI(st.ast, st, 40);
+  assert.strictEqual(res.widx, 0);
+});
+
+test('{@score} — инлайн-ссылка на переменную', () => {
+  const ast = md.parseBlocks('Счёт: {@score} очков\n');
+  const ref = ast[0].inline.find((t) => t.t === 'ref');
+  assert.ok(ref);
+  assert.strictEqual(ref.v, 'score');
+});
+
+test('ref и bar@ref резолвятся из переменных в renderANSI', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: var score 42\n::: bar @score big\nСчёт: {@score}\n', st);
+  const res = md.renderANSI(st.ast, st, 60);
+  const joined = res.lines.join('\n');
+  assert.ok(joined.includes('42%'));
+  assert.ok(!joined.includes('@score'));
+});
+
+test('clock рендерит время из live.now', () => {
+  const st = { focus: -1, live: { now: new Date(2026, 0, 1, 12, 5, 9).getTime() } };
+  md.refreshSource('::: clock\n', st);
+  const res = md.renderANSI(st.ast, st, 40);
+  assert.ok(res.lines.join('\n').includes('12:05:09'));
+});
+
+test('counter показывает значение из vars', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: var score 3\n::: counter score\n', st);
+  const res = md.renderANSI(st.ast, st, 40);
+  assert.ok(res.lines.join('\n').includes('score = 3'));
+});
+
+test('buildPreviewDoc отдаёт состояние для живого предпросмотра', () => {
+  const doc = md.buildPreviewDoc('::: var score 7\n');
+  assert.ok(doc.includes('window.__MDUI'));
+  assert.ok(doc.includes('"score":7'));
 });

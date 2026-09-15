@@ -1,14 +1,14 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 'v0.0.2';
+  const VERSION = 'v0.1.0';
 
-  const DEMO = [
-    '# md-ui — демо v0.0.2',
+const DEMO = [
+    '# md-ui — демо',
     '',
-    'Панель слева — Markdown, справа — живой предпросмотр. Редактируй реальтайм, исправляй, синхронизация двухсторонняя: клик по предпросмотру ведёт к строке в исходнике.',
+    'Панель слева — Markdown, справа — живой предпросмотр. Редактируй реалтайм, исправляй, синхронизация двухсторонняя: клик по предпросмотру ведёт к строке в исходнике.',
     '',
-    'Нажми {Запустить}, чтобы запустить. Или {Купить} молоко.',
+    'Нажми {Запустить}, чтобы запустить. Счёт: {@score} очков.',
     '',
     '## Кнопки',
     '',
@@ -50,6 +50,16 @@
     '## Вопрос',
     '',
     '::: modal Точно удалить?',
+    '',
+    '## Живые данные',
+    '',
+    '::: var score 7',
+    '',
+    '::: clock',
+    '',
+    '::: counter score',
+    '',
+    '::: bar @score big',
     '',
     '## Таблица',
     '',
@@ -130,6 +140,9 @@
     'tree': 'tree', 'menu': 'tree',
     'note': 'note',
     'warn': 'warn',
+    'var': 'var',
+    'clock': 'clock',
+    'counter': 'counter',
   };
 
   const STYLE_WORDS = {
@@ -185,11 +198,19 @@
       if (!options.length) options = [rest.trim()].filter(Boolean);
     }
     let value = null;
+    let name = null;
     if (widget === 'progress') {
       const m = rest.match(/(\d+)/);
       if (m) value = Math.max(0, Math.min(100, +m[1]));
+      else if (rest.indexOf('@') === 0) value = rest;
     }
-    return { widget: widget, labels: options, label: rest, style: style, value: value };
+    if (widget === 'var' || widget === 'counter') {
+      const m = /^(\S+)(?:\s+([\s\S]*))?$/.exec(rest);
+      name = m ? m[1] : (rest || widget);
+      if (widget === 'var' && m && m[2] != null) value = m[2].replace(/\s+$/, '');
+    }
+    if (widget === 'clock' && !rest) rest = '';
+    return { widget: widget, labels: options, label: name || rest, style: style, value: value, name: name };
   }
 
   function makeInlineWidget(text) {
@@ -199,16 +220,17 @@
 
   function parseInline(text) {
     const tokens = [];
-    const re = /\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\{([^}\n]+)\}/g;
+    const re = /\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\{@([^}]+)\}|\{([^}\n]+)\}/g;
     let last = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) tokens.push({ t: 'text', v: text.slice(last, m.index) });
-      const b1 = m[1], b2 = m[2], e1 = m[3], e2 = m[4], code = m[5], lk = m[6], href = m[7], wtext = m[8];
+      const b1 = m[1], b2 = m[2], e1 = m[3], e2 = m[4], code = m[5], lk = m[6], href = m[7], ref = m[8], wtext = m[9];
       if (b1 || b2) tokens.push({ t: 'strong', v: b1 || b2 });
       else if (e1 || e2) tokens.push({ t: 'em', v: e1 || e2 });
       else if (code !== undefined) tokens.push({ t: 'code', v: code });
       else if (lk !== undefined) tokens.push({ t: 'link', v: lk, href: href });
+      else if (ref !== undefined) tokens.push({ t: 'ref', v: ref });
       else if (wtext !== undefined) tokens.push(makeInlineWidget(wtext));
       last = m.index + m[0].length;
     }
@@ -350,7 +372,7 @@
             w.body = body.join('\n');
           }
         }
-        out.push({ type: 'widget', widget: w.widget, label: w.label, labels: w.labels, style: w.style, value: w.value, body: w.body, line: lineNo });
+        out.push({ type: 'widget', widget: w.widget, label: w.label, labels: w.labels, style: w.style, value: w.value, name: w.name, body: w.body, line: lineNo });
         continue;
       }
 
@@ -408,12 +430,26 @@
     '.mdui-note,.mdui-warn{border-left:4px solid;border-radius:0 8px 8px 0;padding:10px 16px;margin:12px 0;}',
     '.mdui-note{border-color:' + THEME.accent + ';background:' + THEME.bg2 + ';color:' + THEME.textDim + ';}',
     '.mdui-warn{border-color:' + THEME.red + ';background:' + THEME.bg2 + ';color:' + THEME.red + ';}',
+    '.mdui-clock{font-family:"SF Mono",Consolas,monospace;color:' + THEME.accent2 + ';display:inline-block;margin:4px 0;}',
+    '.mdui-clock .t{display:inline-block;min-width:9ch;}',
+    '.mdui-counter{display:inline-flex;align-items:center;gap:10px;font-family:"SF Mono",Consolas,monospace;font-size:15px;color:' + THEME.accent2 + ';font-weight:700;margin:4px 0;}',
+    '.mdui-ctr{min-width:32px;}',
+    '.mdui-ref{color:' + THEME.yellow + ';font-weight:700;}',
   ].join('');
 
   const PREVIEW_JS = [
-    'function now(b){return this;}',
-    'document.addEventListener("click",function(e){var t=e.target;if(t.classList&&t.classList.contains("mdui-btn")){var o=t.textContent;t.textContent="✓ "+o;setTimeout(function(){t.textContent=o;},800);}if(t.classList&&t.classList.contains("mdui-tab")){var ts=document.querySelectorAll(".mdui-tab");for(var i=0;i<ts.length;i++)ts[i].classList.remove("active");t.classList.add("active");}if(t.classList&&t.classList.contains("mdui-modal-btn")){var id=t.getAttribute("data-target");var mm=document.getElementById(id);if(mm)mm.classList.add("show");return;}if(t.classList&&t.classList.contains("mdui-modal-cls")){var m2=t.closest(".mdui-modal");if(m2)m2.classList.remove("show");return;}if(t.dataset&&t.dataset.srcLine!=null&&parent&&parent.postMessage){parent.postMessage({mduiSourceLine:+t.dataset.srcLine},"*");}});',
+    'function refresh(){',
+    'var n=new Date(),p=function(x){return(x<10?"0":"")+x;},ts=p(n.getHours())+":"+p(n.getMinutes())+":"+p(n.getSeconds());',
+    'var cs=document.querySelectorAll(".mdui-clock .t");for(var ci=0;ci<cs.length;ci++)cs[ci].textContent=ts;',
+    'var vs=window.__MDUI?window.__MDUI.vars:{};',
+    'var rs=document.querySelectorAll(".mdui-ref");for(var ri=0;ri<rs.length;ri++){var k=rs[ri].getAttribute("data-ref");rs[ri].textContent=(k&&vs[k]!=null)?vs[k]:"";}',
+    'var bs=document.querySelectorAll(".mdui-bar");for(var bi=0;bi<bs.length;bi++){var dv=bs[bi].getAttribute("data-value");if(dv&&dv[0]==="@"){var vv=+vs[dv.slice(1)]||0;var fl=bs[bi].querySelector(".fill");if(fl)fl.style.width=vv+"%";var sp=bs[bi].querySelector("span");if(sp)sp.textContent=vv+"%";}}',
+    '}',
+    'document.addEventListener("click",function(e){var t=e.target;',
+    'if(t.classList&&t.classList.contains("mdui-ctr")){var v=t.getAttribute("data-var"),d=+t.getAttribute("data-delta")||0;window.__MDUI.vars[v]=(+window.__MDUI.vars[v]||0)+d;refresh();return;}',
+    'if(t.classList&&t.classList.contains("mdui-btn")){var o=t.textContent;t.textContent="✓ "+o;setTimeout(function(){t.textContent=o;},800);}if(t.classList&&t.classList.contains("mdui-tab")){var ts=document.querySelectorAll(".mdui-tab");for(var i=0;i<ts.length;i++)ts[i].classList.remove("active");t.classList.add("active");}if(t.classList&&t.classList.contains("mdui-modal-btn")){var id=t.getAttribute("data-target");var mm=document.getElementById(id);if(mm)mm.classList.add("show");return;}if(t.classList&&t.classList.contains("mdui-modal-cls")){var m2=t.closest(".mdui-modal");if(m2)m2.classList.remove("show");return;}if(t.dataset&&t.dataset.srcLine!=null&&parent&&parent.postMessage){parent.postMessage({mduiSourceLine:+t.dataset.srcLine},"*");}});',
     'var mdocs=document.querySelectorAll(".mdui-modal");for(var mi=0;mi<mdocs.length;mi++){mdocs[mi].addEventListener("click",function(ev){if(ev.target===this)this.classList.remove("show");});}',
+    'refresh();setInterval(refresh,1000);',
   ].join('');
 
   let modalCounter = 1;
@@ -431,7 +467,11 @@
     }
     if (node.widget === 'progress') {
       const v = node.value || 0;
-      return '<div class="mdui-bar' + style + '"' + lineAttr + '><div class="track"><div class="fill" style="width:' + v + '%"></div></div><span>' + v + '%</span></div>';
+      const isRef = typeof v === 'string' && v.indexOf('@') === 0;
+      const dv = isRef ? ' data-value="' + escapeHtml(v) + '"' : '';
+      const width = isRef ? 0 : (v || 0);
+      const txt = isRef ? '' : v;
+      return '<div class="mdui-bar' + style + '"' + lineAttr + dv + '><div class="track"><div class="fill" style="width:' + width + '%"></div></div><span>' + txt + '%</span></div>';
     }
     if (node.widget === 'tabs') {
       const labels = node.labels || [];
@@ -473,6 +513,17 @@
     if (node.widget === 'warn') {
       return '<div class="mdui-warn"' + lineAttr + '><strong>' + g.warn + '</strong> ' + escapeHtml(node.label) + '</div>';
     }
+    if (node.widget === 'var') {
+      return '';
+    }
+    if (node.widget === 'clock') {
+      const t = node.label ? escapeHtml(node.label) + ': ' : '';
+      return '<span class="mdui-clock"' + lineAttr + '>' + t + '<span class="t"></span></span>';
+    }
+    if (node.widget === 'counter') {
+      const name = node.name || node.label || 'count';
+      return '<span class="mdui-counter"' + lineAttr + '><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="-1">−</button><span class="mdui-ref" data-ref="' + escapeHtml(name) + '"></span><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="1">+</button></span>';
+    }
     return '<span' + lineAttr + '>' + escapeHtml(node.label) + '</span>';
   }
 
@@ -485,6 +536,7 @@
       else if (t.t === 'em') h += '<em>' + escapeHtml(t.v) + '</em>';
       else if (t.t === 'code') h += '<code>' + escapeHtml(t.v) + '</code>';
       else if (t.t === 'link') h += '<a href="' + t.href + '" target="_blank" rel="noopener">' + escapeHtml(t.v) + '</a>';
+      else if (t.t === 'ref') h += '<span class="mdui-ref" data-ref="' + escapeHtml(t.v) + '"></span>';
       else if (t.t === 'widget') h += widgetHTML(t);
     }
     return h;
@@ -540,9 +592,11 @@
 
   function buildPreviewDoc(src) {
     modalCounter = 1;
-    const body = renderHTMLBlocks(parseBlocks(src)).inner;
+    const ast = parseBlocks(src);
+    const body = renderHTMLBlocks(ast).inner;
+    const vars = collectVars(ast, {});
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + VIEWER_CSS + '</style></head><body>' +
-      body + '<script>' + PREVIEW_JS + '<\/script></body></html>';
+      body + '<script>window.__MDUI=' + JSON.stringify({ vars: vars }) + ';</script><script>' + PREVIEW_JS + '<\/script></body></html>';
   }
 
   function buildBodyHTML(src) {
@@ -555,7 +609,7 @@
     for (let i = 0; i < ast.length; i++) {
       const b = ast[i];
       if (b.type === 'widget') {
-        acc.push({ node: b });
+        if (b.widget !== 'var') acc.push({ node: b });
         if (b.widget === 'fold' && b.body) {
           collectWidgets(parseBlocks(b.body), acc);
         }
@@ -585,6 +639,27 @@
     }
   }
 
+  function collectVars(ast, out) {
+    out = out || {};
+    for (let i = 0; i < ast.length; i++) {
+      const b = ast[i];
+      if (b.type === 'widget' && b.widget === 'var') {
+        const raw = b.value == null || b.value === '' ? '' : b.value;
+        out[b.name] = /^-?\d+(\.\d+)?$/.test(raw) ? +raw : raw;
+      } else if (b.type === 'widget' && b.widget === 'fold' && b.body) {
+        collectVars(parseBlocks(b.body), out);
+      } else if (b.type === 'quote') {
+        collectVars(b.content, out);
+      }
+    }
+    return out;
+  }
+
+  function varValue(st, ref) {
+    const v = st.vars && st.vars[ref] != null ? st.vars[ref] : 0;
+    return typeof v === 'number' && !isNaN(v) ? v : 0;
+  }
+
   function defaultStates(widgets) {
     return widgets.map(function (w) {
       return {
@@ -601,6 +676,7 @@
       case 'em': return C.italic + v;
       case 'code': return COL.accent2 + bg(THEME.bg3) + ' ' + v + ' ' + C.reset + C.reset;
       case 'link': return COL.accent2 + C.underline + v + C.reset;
+      case 'ref': return COL.yellow + C.bold + v + C.reset;
       default: return COL.text + v;
     }
   }
@@ -689,6 +765,7 @@
         else if (t.t === 'em') segs.push({ t: 'em', v: t.v });
         else if (t.t === 'code') segs.push({ t: 'code', v: t.v });
         else if (t.t === 'link') segs.push({ t: 'link', v: t.v });
+        else if (t.t === 'ref') segs.push({ t: 'ref', v: String(st.vars && st.vars[t.v] != null ? st.vars[t.v] : t.v) });
         else if (t.t === 'widget') segs.push({ t: 'text', v: inlineWidgetText(t) });
       }
       return segs;
@@ -798,6 +875,7 @@
         continue;
       }
       if (b.type === 'widget') {
+        if (b.widget === 'var') continue;
         const stIdx = widx;
         const state = st.widgets[stIdx];
         const focused = st.focus === stIdx;
@@ -822,7 +900,7 @@
             }
           }
         } else if (b.widget === 'progress') {
-          const v = b.value == null ? 0 : b.value;
+          const v = typeof b.value === 'string' ? varValue(st, b.value.slice(1)) : (b.value == null ? 0 : b.value);
           const barW = Math.max(4, width - 8);
           let line = focused ? C.reverse : '';
           const on = Math.round(v / 100 * barW);
@@ -868,6 +946,18 @@
           }
         } else if (b.widget === 'modal') {
           lines.push(COL.yellow + '[' + num + '] ' + label + '  (Enter — открыть)' + C.reset);
+        } else if (b.widget === 'clock') {
+          const nowT = (st.live && st.live.now) || Date.now();
+          const d0 = new Date(nowT);
+          const pp = function (x) { return (x < 10 ? '0' : '') + x; };
+          const tt = pp(d0.getHours()) + ':' + pp(d0.getMinutes()) + ':' + pp(d0.getSeconds());
+          const tlabel = label || 'время';
+          lines.push((focused ? C.reverse : COL.accent2) + '[' + num + '] ' + tlabel + ': ' + tt + C.reset);
+        } else if (b.widget === 'counter') {
+          const name = b.name || label || 'count';
+          const val = st.vars && st.vars[name] != null ? st.vars[name] : 0;
+          const cbody = (focused ? C.reverse : COL.accent2) + '[' + num + '] ' + name + ' = ' + val + C.reset;
+          lines.push(cbody + COL.textDim + '  (Enter — +1)' + C.reset);
         } else if (b.widget === 'note') {
           lines.push(COL.textDim + g.note + ' ' + COL.text + label + C.reset);
         } else if (b.widget === 'warn') {
@@ -884,6 +974,7 @@
   function refreshSource(source, st) {
     st.ast = parseBlocks(source);
     st.widgets = defaultStates(collectWidgets(st.ast));
+    st.vars = collectVars(st.ast, {});
     return st;
   }
 
@@ -898,7 +989,9 @@
       edColsPct: 0.42, modalIdx: null, modalChoice: 0, paletteOn: false,
       paletteGroup: 0, paletteIdx: 0, viewMode: 'render', pvTop: 0,
       lastRendered: [], lastRenderedLines: [], widgetCount: 0,
+      vars: {}, live: { now: Date.now() },
     };
+    let tickTimer = null;
     st.filePath = filePath;
     let sourceText = initialSource;
     refreshSource(sourceText, st);
@@ -919,6 +1012,7 @@
       process.stdin.pause();
     }
     function quit() {
+      if (tickTimer) clearInterval(tickTimer);
       exitRaw();
       process.stdout.write('\x1b[?25h\x1b[0m\n');
       process.exit(0);
@@ -1173,6 +1267,12 @@
       else if (node.widget === 'modal') { st.modalIdx = st.focus; st.modalChoice = 0; }
       else if (node.widget === 'progress') toast('прогресс: ' + (node.value || 0) + '%');
       else if (node.widget === 'tree') toast('дерево: ' + (node.labels || []).join(' / '));
+      else if (node.widget === 'clock') toast('текущее время');
+      else if (node.widget === 'counter') {
+        const name = node.name || node.label || 'count';
+        st.vars[name] = varValue(st, name) + 1;
+        toast(name + ' = ' + st.vars[name]);
+      }
       else if (node.widget === 'note') toast('заметка');
       else if (node.widget === 'warn') toast('важно');
     }
@@ -1321,6 +1421,11 @@
     paint();
     process.stdout.on('resize', function () { paint(); });
     process.on('SIGINT', quit);
+    tickTimer = setInterval(function () {
+      st.live.now = Date.now();
+      render();
+      paint();
+    }, 1000);
   }
 
   function runCli(args) {
@@ -1376,6 +1481,8 @@
       'Виджеты: {Button} · ::: button Запустить green · ::: fold Подробнее',
       '         ::: bar 70 · ::: tabs A / B · ::: select a / b',
       '         ::: input Имя · ::: tree A / B · ::: modal Точно? · - [x]',
+      'Live:    ::: var score 0 · ::: counter score · ::: clock',
+      '         ::: bar @score (значение из переменной) · {@score} в тексте',
       '',
       'TUI: Tab — фокус виджета · Enter/Space — действие · 1..9 — быстрый переход',
       '     R — предпросмотр ⇄ HTML · Ctrl+K — символы · Ctrl+S — сохранить · Ctrl+Q — выход',
