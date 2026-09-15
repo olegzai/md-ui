@@ -12,7 +12,7 @@ test('API: версия и публичные функции', () => {
 });
 
 test('кнопка с цветом и её label', () => {
-  const ast = md.parseBlocks('::: кнопка Запустить зелёная\n');
+  const ast = md.parseBlocks('::: button Запустить green\n');
   const w = ast[0];
   assert.strictEqual(w.type, 'widget');
   assert.strictEqual(w.widget, 'button');
@@ -21,24 +21,31 @@ test('кнопка с цветом и её label', () => {
 });
 
 test('складка собирает тело (регрессия v0.0.2)', () => {
-  const ast = md.parseBlocks('::: показать Подробнее\nВнутри **{Кнопка}**.\n:::\n');
+  const ast = md.parseBlocks('::: fold Подробнее\nВнутри **{Кнопка}**.\n:::\n');
   const w = ast[0];
   assert.strictEqual(w.widget, 'fold');
   assert.strictEqual(w.body, 'Внутри **{Кнопка}**.');
 });
 
 test('прогресс читает число из заголовка', () => {
-  const ast = md.parseBlocks('::: бар 70 большая\n');
+  const ast = md.parseBlocks('::: bar 70 big\n');
   assert.strictEqual(ast[0].widget, 'progress');
   assert.strictEqual(ast[0].value, 70);
   assert.strictEqual(ast[0].style, 'big');
 });
 
 test('вкладки / выбор / дерево разбивают options по разделителю', () => {
-  for (const line of ['::: вкладки Игра / Музыка / Книги', '::: выбор красный / зелёный / синий', '::: дерево Игрушки / Гоночки / Машинки']) {
+  for (const line of ['::: tabs Игра / Музыка / Книги', '::: select красный / зелёный / синий', '::: tree Игрушки / Гоночки / Машинки']) {
     const w = md.parseBlocks(line + '\n')[0];
     assert.strictEqual(w.labels.length, 3, line);
   }
+});
+
+test('русские слова не теги: fallback-кнопка с подписью', () => {
+  const w = md.parseBlocks('::: кнопка Запустить\n')[0];
+  assert.strictEqual(w.widget, 'button');
+  assert.strictEqual(w.label, 'кнопка Запустить');
+  assert.strictEqual(w.style, null);
 });
 
 test('инлайн-виджет {Запустить} в абзаце', () => {
@@ -124,7 +131,7 @@ test('модалка без закрывающего ::: не заглатыва
 test('ASCII-режим не содержит box-графику', () => {
   md.setAscii(true);
   const st = { focus: -1, widgets: [], widx: 0 };
-  md.refreshSource('::: бар 50\n', st);
+  md.refreshSource('::: bar 50\n', st);
   const res = md.renderANSI(st.ast, st, 40);
   assert.ok(!res.lines.join('\n').includes('\u2593'), 'нет штриховки');
   md.setAscii(false);
@@ -132,7 +139,7 @@ test('ASCII-режим не содержит box-графику', () => {
 
 test('опции tabs через renderANSI не меняют порядок widx', () => {
   const st = { focus: 0, widgets: [], widx: 0 };
-  md.refreshSource('::: вкладки Игра / Музыка / Книги\n', st);
+  md.refreshSource('::: tabs Игра / Музыка / Книги\n', st);
   const res = md.renderANSI(st.ast, st, 50);
   assert.strictEqual(res.widx, 1);
   assert.ok(res.lines.join('\n').includes('Игра'));
