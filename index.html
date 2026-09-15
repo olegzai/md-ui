@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>md-ui — Markdown → HTML preview</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-brand">
+      <span class="app-title">md-ui</span>
+      <span class="app-version" id="version">v0.0.1</span>
+    </div>
+    <div class="header-actions">
+      <span class="stat" id="stat-words">0 words</span>
+      <button id="btn-restore" title="Restore sample">Sample</button>
+      <button id="btn-clear" title="Clear editor">Clear</button>
+      <button id="btn-copy" title="Copy generated HTML">Copy HTML</button>
+    </div>
+  </header>
+
+  <main class="app-main" id="app-main">
+    <section class="pane pane-editor" id="pane-editor">
+      <div class="pane-toolbar">
+        <span class="pane-label">Markdown</span>
+      </div>
+      <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
+        placeholder="# Start typing markdown…"></textarea>
+    </section>
+
+    <div class="divider" id="divider" role="separator" aria-orientation="vertical"></div>
+
+    <section class="pane pane-preview" id="pane-preview">
+      <div class="pane-toolbar">
+        <span class="pane-label">HTML Preview</span>
+        <span class="pane-hint">Rendered from Markdown</span>
+      </div>
+      <iframe id="preview" title="HTML preview" sandbox="allow-same-origin" loading="lazy"></iframe>
+    </section>
+  </main>
+
+  <script src="marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
