@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>md-ui</title>
+<link rel="icon" href="data:,">
+</head>
+<body>
+<header class="mdui-header">
+  <div class="mdui-brand">
+    <span class="mdui-title">md-ui</span>
+    <span class="mdui-version" id="mdui-version"></span>
+  </div>
+  <div class="mdui-actions">
+    <span class="mdui-stat" id="mdui-stat"></span>
+    <button type="button" class="mdui-btn" id="mdui-sym">Sym</button>
+    <button type="button" class="mdui-btn" id="mdui-sample">Sample</button>
+    <button type="button" class="mdui-btn" id="mdui-clear">Clear</button>
+    <button type="button" class="mdui-btn" id="mdui-copy">Copy HTML</button>
+    <button type="button" class="mdui-btn" id="mdui-mode">Preview</button>
+  </div>
+</header>
+<main class="mdui-main" id="mdui-main">
+  <section class="mdui-pane" id="mdui-editor-pane">
+    <div class="mdui-toolbar">
+      <span class="mdui-label">Markdown</span>
+      <span class="mdui-hint">Ctrl+K — символы</span>
+    </div>
+    <div class="mdui-code">
+      <div id="mdui-gutter"></div>
+      <textarea id="mdui-editor" spellcheck="false" autocomplete="off"
+        placeholder="Пиши markdown — справа живой предпросмотр…"></textarea>
+    </div>
+  </section>
+  <div id="mdui-divider"></div>
+  <section class="mdui-pane" id="mdui-preview-pane">
+    <div class="mdui-toolbar">
+      <span class="mdui-label">Вывод</span>
+      <span class="mdui-hint">клик по виджету → строка в исходнике</span>
+    </div>
+    <iframe id="mdui-preview" sandbox="allow-same-origin allow-scripts"
+      title="Предпросмотр"></iframe>
+  </section>
+</main>
+<script src="md-ui.js"></script>
+</body>
+</html>
