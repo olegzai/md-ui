@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 'v0.1.0';
+  const VERSION = 'v0.2.0';
 
 const DEMO = [
     '# md-ui — демо',
@@ -50,6 +50,8 @@ const DEMO = [
     '## Вопрос',
     '',
     '::: modal Точно удалить?',
+    'Появляется окно-модалка.',
+    ':::',
     '',
     '## Живые данные',
     '',
@@ -78,6 +80,34 @@ const DEMO = [
     '',
     '> Ты читаешь цитату. Всё работает.',
     '',
+    '## Сайт',
+    '',
+    '::: section О проекте',
+    'Блочная секция с телом до закрывающего `:::`.',
+    ':::',
+    '',
+    '::: grid 2',
+    'Первая ячейка сетки.',
+
+    'Вторая ячейка сетки.',
+    ':::',
+    '',
+    '::: cols',
+    'Левая часть текста.',
+
+    '---',
+
+    'Правая часть текста.',
+    ':::',
+    '',
+    '::: card Пример карточки',
+    'Внутри карточки — обычный markdown.',
+    ':::',
+    '',
+    '::: banner Успех green',
+    'Баннер-примечание со стилем.',
+    ':::',
+    '',
     '---',
     '',
     'Ссылка на проект: [md-ui](https://github.com/olegzai/md-ui)',
@@ -87,6 +117,12 @@ const DEMO = [
     bg: '#0f1117', bg2: '#161a23', bg3: '#1d2330', border: '#2a3242',
     text: '#e6e9f0', textDim: '#8b93a7', accent: '#4f8cff', accent2: '#7aa5ff',
     green: '#3fb950', yellow: '#d29922', red: '#f85149', blue: '#58a6ff',
+  };
+
+  const THEME_LIGHT = {
+    bg: '#ffffff', bg2: '#f5f7fb', bg3: '#eef1f7', border: '#d8dee9',
+    text: '#1c2333', textDim: '#5c6779', accent: '#2f6bff', accent2: '#1a4fd6',
+    green: '#1a7f37', yellow: '#9a6700', red: '#d1242f', blue: '#0a66c2',
   };
 
   const C = {
@@ -143,6 +179,27 @@ const DEMO = [
     'var': 'var',
     'clock': 'clock',
     'counter': 'counter',
+    'section': 'section',
+    'card': 'card',
+    'hero': 'hero',
+    'nav': 'nav',
+    'footer': 'footer',
+    'banner': 'banner',
+    'grid': 'grid',
+    'cols': 'cols', 'columns': 'cols',
+    'img': 'img', 'image': 'img',
+    'include': 'include',
+    'theme': 'theme',
+    'css': 'css',
+  };
+
+  const BODY_TYPES = {
+    fold: 1, modal: 1, section: 1, card: 1, hero: 1, nav: 1, footer: 1,
+    banner: 1, grid: 1, cols: 1, css: 1,
+  };
+
+  const STATE_ONLY = {
+    var: 1, theme: 1, css: 1, include: 1,
   };
 
   const STYLE_WORDS = {
@@ -168,6 +225,52 @@ const DEMO = [
     let s = '';
     for (let i = 0; i < tokens.length; i++) s += tokens[i].v;
     return s;
+  }
+
+  function parseFrontmatter(src) {
+    const m = /^(?:\uFEFF)?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(src);
+    if (!m) return { meta: null, body: src };
+    const meta = {};
+    m[1].split('\n').forEach(function (line) {
+      const kv = /^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/.exec(line);
+      if (kv) meta[kv[1]] = kv[2].trim();
+    });
+    return { meta: meta, body: src.slice(m[0].length) };
+  }
+
+  function expandIncludes(src, baseDir, seen) {
+    baseDir = baseDir || '.';
+    seen = seen || {};
+    let fsMod = null;
+    let pathMod = null;
+    if (typeof require === 'function' && typeof process !== 'undefined') {
+      try {
+        fsMod = require('fs');
+        pathMod = require('path');
+      } catch (e) { fsMod = null; pathMod = null; }
+    }
+    if (!fsMod || !pathMod) return src;
+    const out = [];
+    const lines = src.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const lm = /^\s*:::\s*include\s+(\S+)/.exec(lines[i]);
+      if (lm) {
+        const p = pathMod.resolve(baseDir, lm[1]);
+        if (seen[p]) {
+          out.push('::: warn Циклическое включение: ' + lm[1]);
+        } else if (fsMod.existsSync(p)) {
+          const seen2 = Object.assign({}, seen);
+          seen2[p] = 1;
+          const sub = expandIncludes(fsMod.readFileSync(p, 'utf8'), pathMod.dirname(p), seen2);
+          out.push(sub);
+        } else {
+          out.push('::: warn Файл не найден: ' + lm[1]);
+        }
+      } else {
+        out.push(lines[i]);
+      }
+    }
+    return out.join('\n');
   }
 
   function parseWidgetText(text) {
@@ -210,7 +313,19 @@ const DEMO = [
       if (widget === 'var' && m && m[2] != null) value = m[2].replace(/\s+$/, '');
     }
     if (widget === 'clock' && !rest) rest = '';
-    return { widget: widget, labels: options, label: name || rest, style: style, value: value, name: name };
+    let label = name || rest;
+    if (widget === 'img' || widget === 'include') {
+      const m2 = /^(\S+)(?:[ \t]+([\s\S]*))?$/.exec(rest);
+      value = m2 && m2[1] ? m2[1] : rest;
+      label = m2 && m2[2] ? m2[2].trim() : '';
+    }
+    if (widget === 'theme') { value = rest.trim(); label = ''; }
+    if (widget === 'grid') {
+      const mv = rest.match(/(\d+)/);
+      if (mv) value = Math.max(1, Math.min(12, +mv[1]));
+      label = '';
+    }
+    return { widget: widget, labels: options, label: label, style: style, value: value, name: name };
   }
 
   function makeInlineWidget(text) {
@@ -220,16 +335,18 @@ const DEMO = [
 
   function parseInline(text) {
     const tokens = [];
-    const re = /\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\{@([^}]+)\}|\{([^}\n]+)\}/g;
+    const re = /\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|`([^`]+)`|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|\{@([^}]+)\}|\{([^}\n]+)\}/g;
     let last = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) tokens.push({ t: 'text', v: text.slice(last, m.index) });
-      const b1 = m[1], b2 = m[2], e1 = m[3], e2 = m[4], code = m[5], lk = m[6], href = m[7], ref = m[8], wtext = m[9];
+      const b1 = m[1], b2 = m[2], e1 = m[3], e2 = m[4], code = m[5], imgAlt = m[6], imgSrc = m[7], lk = m[8], href = m[9], plk = m[10], phref = m[11], ref = m[12], wtext = m[13];
       if (b1 || b2) tokens.push({ t: 'strong', v: b1 || b2 });
       else if (e1 || e2) tokens.push({ t: 'em', v: e1 || e2 });
       else if (code !== undefined) tokens.push({ t: 'code', v: code });
-      else if (lk !== undefined) tokens.push({ t: 'link', v: lk, href: href });
+      else if (imgAlt !== undefined) tokens.push({ t: 'img', alt: imgAlt || '', src: imgSrc });
+      else if (lk !== undefined) tokens.push({ t: 'link', v: lk, href: href, external: true });
+      else if (plk !== undefined) tokens.push({ t: 'link', v: plk, href: phref, external: false });
       else if (ref !== undefined) tokens.push({ t: 'ref', v: ref });
       else if (wtext !== undefined) tokens.push(makeInlineWidget(wtext));
       last = m.index + m[0].length;
@@ -277,9 +394,12 @@ const DEMO = [
   }
 
   function parseBlocks(src) {
+    let startLine = 0;
+    const fm = /^(?:\uFEFF)?---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(src);
+    if (fm) startLine = src.slice(0, fm[0].length).split('\n').length - 1;
     const lines = src.replace(/\r\n/g, '\n').split('\n');
     const out = [];
-    let i = 0;
+    let i = startLine;
     while (i < lines.length) {
       const line = lines[i];
       if (/^\s*$/.test(line)) { i++; continue; }
@@ -349,15 +469,7 @@ const DEMO = [
         const m = line.match(/^\s*:::\s*(.*)$/);
         const w = parseWidgetText(m ? m[1] : '');
         i++;
-        if (w.widget === 'fold') {
-          const body = [];
-          while (i < lines.length && !/^\s*:::\s*$/.test(lines[i])) {
-            body.push(lines[i]);
-            i++;
-          }
-          if (i < lines.length) i++;
-          w.body = body.join('\n');
-        } else if (w.widget === 'modal') {
+        if (w.widget === 'modal') {
           let found = false;
           for (let j = i; j < lines.length; j++) {
             if (/^\s*:::\s*$/.test(lines[j])) { found = true; break; }
@@ -371,8 +483,21 @@ const DEMO = [
             if (i < lines.length) i++;
             w.body = body.join('\n');
           }
+        } else if (BODY_TYPES[w.widget]) {
+          const body = [];
+          while (i < lines.length && !/^\s*:::\s*$/.test(lines[i])) {
+            body.push(lines[i]);
+            i++;
+          }
+          if (i < lines.length) i++;
+          w.body = body.join('\n');
         }
-        out.push({ type: 'widget', widget: w.widget, label: w.label, labels: w.labels, style: w.style, value: w.value, name: w.name, body: w.body, line: lineNo });
+        let parts = null;
+        if (w.widget === 'cols' && w.body) {
+          const sp = w.body.split(/\r?\n\s*---\s*\r?\n/);
+          parts = [sp[0] || '', (sp[1] || '')].map(function (s) { return s.trim(); });
+        }
+        out.push({ type: 'widget', widget: w.widget, label: w.label, labels: w.labels, style: w.style, value: w.value, name: w.name, body: w.body, parts: parts, line: lineNo });
         continue;
       }
 
@@ -389,53 +514,117 @@ const DEMO = [
     return out;
   }
 
-  const VIEWER_CSS = [
-    'body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:900px;margin:0 auto;padding:32px 40px;color:' + THEME.text + ';background:' + THEME.bg + ';line-height:1.65;}',
+  const VIEWER_RULES = [
+    'body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:900px;margin:0 auto;padding:32px 40px;color:$text;background:$bg;line-height:1.65;}',
     'h1,h2,h3,h4,h5,h6{line-height:1.25;margin-top:32px;margin-bottom:12px;}',
-    'h1{font-size:2em;border-bottom:1px solid ' + THEME.border + ';padding-bottom:8px;}',
-    'h2{font-size:1.5em;border-bottom:1px solid ' + THEME.border + ';padding-bottom:6px;}',
-    'a{color:' + THEME.accent2 + ';text-decoration:none;}a:hover{text-decoration:underline;}',
-    'pre{background:' + THEME.bg3 + ';padding:16px;border-radius:8px;overflow:auto;}',
-    'code{font-family:"SF Mono",Consolas,monospace;font-size:0.9em;color:' + THEME.accent2 + ';background:' + THEME.bg3 + ';padding:2px 5px;border-radius:4px;}',
+    'h1{font-size:2em;border-bottom:1px solid $border;padding-bottom:8px;}',
+    'h2{font-size:1.5em;border-bottom:1px solid $border;padding-bottom:6px;}',
+    'a{color:$accent2;text-decoration:none;}a:hover{text-decoration:underline;}',
+    'pre{background:$bg3;padding:16px;border-radius:8px;overflow:auto;}',
+    'code{font-family:"SF Mono",Consolas,monospace;font-size:0.9em;color:$accent2;background:$bg3;padding:2px 5px;border-radius:4px;}',
     'pre code{background:none;padding:0;}',
-    'blockquote{border-left:4px solid ' + THEME.border + ';margin:0;padding:0 16px;color:' + THEME.textDim + ';}',
+    'blockquote{border-left:4px solid $border;margin:0;padding:0 16px;color:$dim;}',
     'table{border-collapse:collapse;margin:16px 0;width:100%;}',
-    'th,td{border:1px solid ' + THEME.border + ';padding:6px 12px;text-align:left;}',
-    'th{background:' + THEME.bg2 + ';color:' + THEME.accent2 + ';}',
-    'hr{border:none;border-top:1px solid ' + THEME.border + ';margin:24px 0;}',
+    'th,td{border:1px solid $border;padding:6px 12px;text-align:left;}',
+    'th{background:$bg2;color:$accent2;}',
+    'hr{border:none;border-top:1px solid $border;margin:24px 0;}',
     'ul,ol{padding-left:24px;}',
+    'img.mdui-img{max-width:100%;border-radius:8px;margin:8px 0;}',
     'input[type=checkbox]{margin-right:6px;transform:scale(1.15);}',
-    '.mdui-btn{font-family:inherit;font-size:14px;color:' + THEME.text + ';background:' + THEME.bg3 + ';border:1px solid ' + THEME.border + ';border-radius:8px;padding:6px 16px;margin:2px 4px;cursor:pointer;}',
-    '.mdui-btn:hover{border-color:' + THEME.accent + ';}',
-    '.mdui-btn.primary{border-color:' + THEME.accent + ';color:' + THEME.accent2 + ';}',
-    '.mdui-btn.green{border-color:' + THEME.green + ';color:' + THEME.green + ';}',
-    '.mdui-btn.red{border-color:' + THEME.red + ';color:' + THEME.red + ';}',
-    '.mdui-btn.blue{border-color:' + THEME.blue + ';color:' + THEME.blue + ';}',
-    '.mdui-btn.yellow{border-color:' + THEME.yellow + ';color:' + THEME.yellow + ';}',
+    '.mdui-btn{font-family:inherit;font-size:14px;color:$text;background:$bg3;border:1px solid $border;border-radius:8px;padding:6px 16px;margin:2px 4px;cursor:pointer;}',
+    '.mdui-btn:hover{border-color:$accent;}',
+    '.mdui-btn.primary{border-color:$accent;color:$accent2;}',
+    '.mdui-btn.green{border-color:$green;color:$green;}',
+    '.mdui-btn.red{border-color:$red;color:$red;}',
+    '.mdui-btn.blue{border-color:$blue;color:$blue;}',
+    '.mdui-btn.yellow{border-color:$yellow;color:$yellow;}',
     '.mdui-btn.big{font-size:18px;padding:10px 24px;}',
     '.mdui-bar{display:inline-flex;align-items:center;gap:10px;width:80%;}',
-    '.mdui-bar .track{flex:1;height:14px;background:' + THEME.bg3 + ';border:1px solid ' + THEME.border + ';border-radius:999px;overflow:hidden;}',
-    '.mdui-bar .fill{height:100%;background:' + THEME.accent + ';border-radius:999px;}',
+    '.mdui-bar .track{flex:1;height:14px;background:$bg3;border:1px solid $border;border-radius:999px;overflow:hidden;}',
+    '.mdui-bar .fill{height:100%;background:$accent;border-radius:999px;}',
     '.mdui-bar.big{width:100%;}',
     '.mdui-tabs{display:flex;gap:4px;margin:8px 0;flex-wrap:wrap;}',
-    '.mdui-tab{font-family:inherit;font-size:13px;color:' + THEME.textDim + ';background:' + THEME.bg2 + ';border:1px solid ' + THEME.border + ';border-radius:999px;padding:4px 14px;cursor:pointer;}',
-    '.mdui-tab.active{color:' + THEME.text + ';background:' + THEME.bg3 + ';border-color:' + THEME.accent + ';}',
-    'select.mdui-select{font-family:inherit;font-size:14px;color:' + THEME.text + ';background:' + THEME.bg2 + ';border:1px solid ' + THEME.border + ';border-radius:8px;padding:6px 10px;}',
-    '.mdui-input{font-family:inherit;font-size:14px;color:' + THEME.text + ';background:' + THEME.bg2 + ';border:1px solid ' + THEME.border + ';border-radius:8px;padding:6px 10px;min-width:220px;}',
+    '.mdui-tab{font-family:inherit;font-size:13px;color:$dim;background:$bg2;border:1px solid $border;border-radius:999px;padding:4px 14px;cursor:pointer;}',
+    '.mdui-tab.active{color:$text;background:$bg3;border-color:$accent;}',
+    'select.mdui-select{font-family:inherit;font-size:14px;color:$text;background:$bg2;border:1px solid $border;border-radius:8px;padding:6px 10px;}',
+    '.mdui-input{font-family:inherit;font-size:14px;color:$text;background:$bg2;border:1px solid $border;border-radius:8px;padding:6px 10px;min-width:220px;}',
     '.mdui-tree{font-family:"SF Mono",Consolas,monospace;font-size:14px;line-height:1.5;margin:8px 0;}',
     '.mdui-tree div{padding-left:8px;}',
     '.mdui-modal{display:none;position:fixed;inset:0;background:rgba(6,8,12,.65);align-items:center;justify-content:center;}',
     '.mdui-modal.show{display:flex;}',
-    '.mdui-modal-box{background:' + THEME.bg2 + ';border:1px solid ' + THEME.accent + ';border-radius:12px;padding:20px 24px;min-width:280px;text-align:center;}',
+    '.mdui-modal-box{background:$bg2;border:1px solid $accent;border-radius:12px;padding:20px 24px;min-width:280px;text-align:center;}',
     '.mdui-note,.mdui-warn{border-left:4px solid;border-radius:0 8px 8px 0;padding:10px 16px;margin:12px 0;}',
-    '.mdui-note{border-color:' + THEME.accent + ';background:' + THEME.bg2 + ';color:' + THEME.textDim + ';}',
-    '.mdui-warn{border-color:' + THEME.red + ';background:' + THEME.bg2 + ';color:' + THEME.red + ';}',
-    '.mdui-clock{font-family:"SF Mono",Consolas,monospace;color:' + THEME.accent2 + ';display:inline-block;margin:4px 0;}',
+    '.mdui-note{border-color:$accent;background:$bg2;color:$dim;}',
+    '.mdui-warn{border-color:$red;background:$bg2;color:$red;}',
+    '.mdui-clock{font-family:"SF Mono",Consolas,monospace;color:$accent2;display:inline-block;margin:4px 0;}',
     '.mdui-clock .t{display:inline-block;min-width:9ch;}',
-    '.mdui-counter{display:inline-flex;align-items:center;gap:10px;font-family:"SF Mono",Consolas,monospace;font-size:15px;color:' + THEME.accent2 + ';font-weight:700;margin:4px 0;}',
+    '.mdui-counter{display:inline-flex;align-items:center;gap:10px;font-family:"SF Mono",Consolas,monospace;font-size:15px;color:$accent2;font-weight:700;margin:4px 0;}',
     '.mdui-ctr{min-width:32px;}',
-    '.mdui-ref{color:' + THEME.yellow + ';font-weight:700;}',
-  ].join('');
+    '.mdui-ref{color:$yellow;font-weight:700;}',
+    '.mdui-section{margin:24px 0;}',
+    '.mdui-sec-title{font-size:1.2em;color:$accent2;margin:0 0 8px;}',
+    '.mdui-card{border:1px solid $border;border-radius:12px;padding:16px 20px;margin:16px 0;background:$bg2;}',
+    '.mdui-card-title{font-weight:700;color:$accent2;margin-bottom:8px;}',
+    '.mdui-hero{text-align:center;padding:48px 24px;border-radius:16px;background:linear-gradient(180deg,$bg3,$bg2);border:1px solid $border;margin:24px 0;}',
+    '.mdui-hero h1{font-size:2.4em;border:none;}',
+    '.mdui-nav{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 0;border-bottom:1px solid $border;margin:8px 0 20px;}',
+    '.mdui-nav a{color:$dim;}',
+    '.mdui-footer{margin-top:40px;padding-top:16px;border-top:1px solid $border;color:$dim;font-size:14px;}',
+    '.mdui-banner{border-left:4px solid;border-radius:0 8px 8px 0;padding:10px 16px;margin:12px 0;background:$bg2;color:$dim;}',
+    '.mdui-banner.green{border-color:$green;color:$green;}',
+    '.mdui-banner.red{border-color:$red;color:$red;}',
+    '.mdui-banner.blue{border-color:$blue;color:$blue;}',
+    '.mdui-banner.yellow{border-color:$yellow;color:$yellow;}',
+    '.mdui-banner.primary{border-color:$accent;color:$accent2;}',
+    '.mdui-banner.big{font-size:16px;padding:14px 20px;}',
+    '.mdui-banner strong{display:block;margin-bottom:4px;}',
+    '.mdui-grid{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:16px;margin:16px 0;}',
+    '.mdui-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:16px 0;}',
+    '@media(max-width:700px){.mdui-grid,.mdui-cols{grid-template-columns:1fr;}}',
+    '.mdui-include{border:1px dashed $border;color:$dim;border-radius:8px;padding:8px 12px;background:$bg2;font-size:13px;margin:8px 0;}',
+    'figure.mdui-img{margin:16px 0;text-align:center;}',
+    'figure.mdui-img img{max-width:100%;border-radius:8px;}',
+    'figure.mdui-img figcaption{color:$dim;font-size:13px;margin-top:6px;}',
+  ];
+
+  function varsCss(v) {
+    return ':root{' + ['--bg:$bg', '--bg2:$bg2', '--bg3:$bg3', '--border:$border', '--text:$text', '--dim:$textDim', '--accent:$accent', '--accent2:$accent2', '--green:$green', '--red:$red', '--blue:$blue', '--yellow:$yellow'].join(';').replace(/\$(\w+)/g, function (m, k) { return v[k]; }) + '}';
+  }
+
+  function viewerCss(v) {
+    return varsCss(v) + VIEWER_RULES.join('').replace(/\$(\w+)/g, function (m, k) { return v[k]; });
+  }
+
+  function pageExtras(ast, out) {
+    out = out || { theme: null, css: [] };
+    for (let i = 0; i < ast.length; i++) {
+      const b = ast[i];
+      if (b.type === 'widget') {
+        if (b.widget === 'theme' && b.value) {
+          out.theme = /^light$/i.test(b.value) ? 'light' : 'dark';
+        } else if (b.widget === 'css' && b.body) {
+          out.css.push(b.body);
+        } else if (BODY_TYPES[b.widget] && b.body) {
+          pageExtras(parseBlocks(b.body), out);
+        }
+      } else if (b.type === 'quote') {
+        pageExtras(b.content, out);
+      }
+    }
+    return out;
+  }
+
+  function themeVars(name) {
+    return name === 'light' ? THEME_LIGHT : THEME;
+  }
+
+  function headFor(src) {
+    const ex = pageExtras(parseBlocks(src));
+    const hud = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+      viewerCss(themeVars(ex.theme)) +
+      (ex.css.length ? '<style>' + ex.css.join('\n') + '</style>' : '');
+    return hud;
+  }
 
   const PREVIEW_JS = [
     'function refresh(){',
@@ -524,6 +713,55 @@ const DEMO = [
       const name = node.name || node.label || 'count';
       return '<span class="mdui-counter"' + lineAttr + '><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="-1">−</button><span class="mdui-ref" data-ref="' + escapeHtml(name) + '"></span><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="1">+</button></span>';
     }
+    if (node.widget === 'img') {
+      const src = node.value || node.label || '';
+      const alt = node.value ? node.label || '' : '';
+      return '<figure class="mdui-img"' + lineAttr + '><img src="' + escapeHtml(src) + '" alt="' + escapeHtml(alt) + '" loading="lazy">' + (alt ? '<figcaption>' + escapeHtml(alt) + '</figcaption>' : '') + '</figure>';
+    }
+    if (node.widget === 'section') {
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<section class="mdui-section"' + lineAttr + '>' + (node.label ? '<h2 class="mdui-sec-title">' + escapeHtml(node.label) + '</h2>' : '') + body + '</section>';
+    }
+    if (node.widget === 'card') {
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<div class="mdui-card"' + lineAttr + '>' + (node.label ? '<div class="mdui-card-title">' + escapeHtml(node.label) + '</div>' : '') + body + '</div>';
+    }
+    if (node.widget === 'hero') {
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<section class="mdui-hero"' + lineAttr + '>' + (node.label ? '<h1>' + escapeHtml(node.label) + '</h1>' : '') + body + '</section>';
+    }
+    if (node.widget === 'nav') {
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<nav class="mdui-nav" aria-label="Навигация по сайту"' + lineAttr + '>' + body + '</nav>';
+    }
+    if (node.widget === 'footer') {
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<footer class="mdui-footer"' + lineAttr + '>' + body + '</footer>';
+    }
+    if (node.widget === 'banner') {
+      const cls = node.style ? ' ' + node.style : '';
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<div class="mdui-banner' + cls + '" role="note"' + lineAttr + '>' + (node.label ? '<strong>' + escapeHtml(node.label) + '</strong>' : '') + body + '</div>';
+    }
+    if (node.widget === 'grid') {
+      const cols = node.value || 3;
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<div class="mdui-grid" style="--cols:' + cols + '"' + lineAttr + '>' + body + '</div>';
+    }
+    if (node.widget === 'cols') {
+      const parts = node.parts && node.parts.length ? node.parts : [node.body || ''];
+      let h = '<div class="mdui-cols"' + lineAttr + '>';
+      for (let pi = 0; pi < Math.min(parts.length, 2); pi++) {
+        h += '<div class="mdui-col">' + renderHTMLBlocks(parseBlocks(parts[pi] || '')).inner + '</div>';
+      }
+      return h + '</div>';
+    }
+    if (node.widget === 'theme' || node.widget === 'css') {
+      return '';
+    }
+    if (node.widget === 'include') {
+      return '<div class="mdui-include"' + lineAttr + '>include: ' + escapeHtml(node.value || node.label || '') + '</div>';
+    }
     return '<span' + lineAttr + '>' + escapeHtml(node.label) + '</span>';
   }
 
@@ -535,7 +773,8 @@ const DEMO = [
       else if (t.t === 'strong') h += '<strong>' + escapeHtml(t.v) + '</strong>';
       else if (t.t === 'em') h += '<em>' + escapeHtml(t.v) + '</em>';
       else if (t.t === 'code') h += '<code>' + escapeHtml(t.v) + '</code>';
-      else if (t.t === 'link') h += '<a href="' + t.href + '" target="_blank" rel="noopener">' + escapeHtml(t.v) + '</a>';
+      else if (t.t === 'img') h += '<img class="mdui-img" src="' + escapeHtml(t.src) + '" alt="' + escapeHtml(t.alt) + '" loading="lazy">';
+      else if (t.t === 'link') h += '<a href="' + escapeHtml(t.href) + '"' + (t.external === false ? '' : ' target="_blank" rel="noopener"') + '>' + escapeHtml(t.v) + '</a>';
       else if (t.t === 'ref') h += '<span class="mdui-ref" data-ref="' + escapeHtml(t.v) + '"></span>';
       else if (t.t === 'widget') h += widgetHTML(t);
     }
@@ -592,10 +831,9 @@ const DEMO = [
 
   function buildPreviewDoc(src) {
     modalCounter = 1;
-    const ast = parseBlocks(src);
-    const body = renderHTMLBlocks(ast).inner;
-    const vars = collectVars(ast, {});
-    return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + VIEWER_CSS + '</style></head><body>' +
+    const body = renderHTMLBlocks(parseBlocks(src)).inner;
+    const vars = collectVars(parseBlocks(src), {});
+    return '<!DOCTYPE html><html><head>' + headFor(src) + '</head><body>' +
       body + '<script>window.__MDUI=' + JSON.stringify({ vars: vars }) + ';</script><script>' + PREVIEW_JS + '<\/script></body></html>';
   }
 
@@ -609,8 +847,8 @@ const DEMO = [
     for (let i = 0; i < ast.length; i++) {
       const b = ast[i];
       if (b.type === 'widget') {
-        if (b.widget !== 'var') acc.push({ node: b });
-        if (b.widget === 'fold' && b.body) {
+        if (!STATE_ONLY[b.widget]) acc.push({ node: b });
+        if (BODY_TYPES[b.widget] && b.body) {
           collectWidgets(parseBlocks(b.body), acc);
         }
       } else if (b.type === 'list') {
@@ -646,7 +884,7 @@ const DEMO = [
       if (b.type === 'widget' && b.widget === 'var') {
         const raw = b.value == null || b.value === '' ? '' : b.value;
         out[b.name] = /^-?\d+(\.\d+)?$/.test(raw) ? +raw : raw;
-      } else if (b.type === 'widget' && b.widget === 'fold' && b.body) {
+      } else if (b.type === 'widget' && BODY_TYPES[b.widget] && b.body) {
         collectVars(parseBlocks(b.body), out);
       } else if (b.type === 'quote') {
         collectVars(b.content, out);
@@ -677,6 +915,7 @@ const DEMO = [
       case 'code': return COL.accent2 + bg(THEME.bg3) + ' ' + v + ' ' + C.reset + C.reset;
       case 'link': return COL.accent2 + C.underline + v + C.reset;
       case 'ref': return COL.yellow + C.bold + v + C.reset;
+      case 'img': return COL.blue + '[изображение] ' + v + C.reset;
       default: return COL.text + v;
     }
   }
@@ -765,6 +1004,7 @@ const DEMO = [
         else if (t.t === 'em') segs.push({ t: 'em', v: t.v });
         else if (t.t === 'code') segs.push({ t: 'code', v: t.v });
         else if (t.t === 'link') segs.push({ t: 'link', v: t.v });
+        else if (t.t === 'img') segs.push({ t: 'img', v: t.alt ? t.alt + ' (' + t.src + ')' : t.src });
         else if (t.t === 'ref') segs.push({ t: 'ref', v: String(st.vars && st.vars[t.v] != null ? st.vars[t.v] : t.v) });
         else if (t.t === 'widget') segs.push({ t: 'text', v: inlineWidgetText(t) });
       }
@@ -875,7 +1115,7 @@ const DEMO = [
         continue;
       }
       if (b.type === 'widget') {
-        if (b.widget === 'var') continue;
+        if (STATE_ONLY[b.widget]) continue;
         const stIdx = widx;
         const state = st.widgets[stIdx];
         const focused = st.focus === stIdx;
@@ -946,6 +1186,10 @@ const DEMO = [
           }
         } else if (b.widget === 'modal') {
           lines.push(COL.yellow + '[' + num + '] ' + label + '  (Enter — открыть)' + C.reset);
+          if (b.body) {
+            const sub = renderANSI(parseBlocks(b.body), { widgets: st.widgets, focus: st.focus, widx: widx }, Math.max(4, width - 2));
+            widx = sub.widx;
+          }
         } else if (b.widget === 'clock') {
           const nowT = (st.live && st.live.now) || Date.now();
           const d0 = new Date(nowT);
@@ -962,6 +1206,35 @@ const DEMO = [
           lines.push(COL.textDim + g.note + ' ' + COL.text + label + C.reset);
         } else if (b.widget === 'warn') {
           lines.push(COL.yellow + g.warn + ' ' + label + C.reset);
+        } else if (b.widget === 'img') {
+          const src = b.value || label || '';
+          const alt = b.value ? label : '';
+          lines.push(COL.blue + '[изображение]' + C.reset + (alt ? COL.text + ' ' + alt + ' ' + C.reset : '') + COL.textDim + '(' + src + ')' + C.reset);
+        } else if (b.widget === 'section' || b.widget === 'card' || b.widget === 'hero' || b.widget === 'nav' || b.widget === 'footer' || b.widget === 'banner') {
+          const mark = { section: '§', card: '▣', hero: '★', nav: '≡', footer: '▼', banner: '!' }[b.widget] || '»';
+          const headCol = b.widget === 'nav' || b.widget === 'footer' ? COL.textDim : (b.widget === 'card' ? COL.accent2 : colorOf(b.style));
+          const head = (focused ? C.reverse : headCol) + '[' + num + '] ' + mark + ' ' + label + C.reset;
+          lines.push(head);
+          if (b.body) {
+            const sub = renderANSI(parseBlocks(b.body), { widgets: st.widgets, focus: st.focus, widx: widx }, Math.max(4, width - 2));
+            widx = sub.widx;
+            for (let si = 0; si < sub.lines.length; si++) lines.push('  ' + sub.lines[si]);
+          }
+        } else if (b.widget === 'grid') {
+          lines.push((focused ? C.reverse : COL.accent2) + '[сетка: ' + (b.value || 3) + ' колонок]' + C.reset);
+          if (b.body) {
+            const sub = renderANSI(parseBlocks(b.body), { widgets: st.widgets, focus: st.focus, widx: widx }, Math.max(4, width - 2));
+            widx = sub.widx;
+            for (let si = 0; si < sub.lines.length; si++) lines.push('  ' + sub.lines[si]);
+          }
+        } else if (b.widget === 'cols') {
+          const parts = b.parts && b.parts.length ? b.parts : [b.body || ''];
+          for (let pi = 0; pi < Math.min(parts.length, 2); pi++) {
+            lines.push(COL.textDim + (pi === 0 ? 'левая' : 'правая') + ' колонка:' + C.reset);
+            const sub = renderANSI(parseBlocks(parts[pi] || ''), { widgets: st.widgets, focus: st.focus, widx: widx }, Math.max(4, width - 2));
+            widx = sub.widx;
+            for (let si = 0; si < sub.lines.length; si++) lines.push('  ' + sub.lines[si]);
+          }
         } else {
           lines.push(COL.text + label + C.reset);
         }
@@ -1275,6 +1548,11 @@ const DEMO = [
       }
       else if (node.widget === 'note') toast('заметка');
       else if (node.widget === 'warn') toast('важно');
+      else if (node.widget === 'section' || node.widget === 'card' || node.widget === 'hero' ||
+        node.widget === 'nav' || node.widget === 'footer' || node.widget === 'banner' ||
+        node.widget === 'grid' || node.widget === 'cols' || node.widget === 'img') {
+        toast('блок: ' + (node.label || node.widget) + (node.widget === 'grid' ? ' (' + (node.value || 3) + ' кол.)' : ''));
+      }
     }
 
     function stepFocused(d) {
@@ -1441,13 +1719,13 @@ const DEMO = [
       else if (a === 'convert') cmd = 'convert';
       else if (a === 'serve') cmd = 'serve';
       else if (a.startsWith('-')) rest.push(a);
-      else if (!cmd && file === null) file = a;
+      else if (file === null) file = a;
       else rest.push(a);
     }
     if (cmd === 'help') return printHelp();
     if (cmd === 'convert') {
       const target = file || path.join(__dirname, 'demo', 'demo.md');
-      const src = fs.readFileSync(target, 'utf8');
+      const src = expandIncludes(fs.readFileSync(target, 'utf8'), path.dirname(target));
       if (rest.indexOf('--body') >= 0) process.stdout.write(buildBodyHTML(src) + '\n');
       else process.stdout.write(buildPreviewDoc(src) + '\n');
       return;
@@ -1458,7 +1736,7 @@ const DEMO = [
     }
     if (cmd === 'tui' || cmd === null) {
       const target = file || path.join(__dirname, 'demo', 'demo.md');
-      const src = fs.readFileSync(target, 'utf8');
+      const src = expandIncludes(fs.readFileSync(target, 'utf8'), path.dirname(target));
       if (!process.stdin.isTTY) {
         process.stdout.write('md-ui: интерактивный режим требует TTY.\nПодсказка: node md-ui.js convert <файл>\n');
         return;
@@ -1481,6 +1759,11 @@ const DEMO = [
       'Виджеты: {Button} · ::: button Запустить green · ::: fold Подробнее',
       '         ::: bar 70 · ::: tabs A / B · ::: select a / b',
       '         ::: input Имя · ::: tree A / B · ::: modal Точно? · - [x]',
+      'Блоки:   ::: section Заголовок · ::: card Название · ::: hero',
+      '         ::: grid 2 · ::: cols · ::: nav · ::: footer',
+      '         ::: banner green Текст · ::: img cat.png Подпись',
+      'Сайт:    ::: theme dark|light · ::: css (свой CSS) · ::: include файл.md',
+      '         frontmatter --- title:… --- · [текст](page.md) · ![alt](img.png)',
       'Live:    ::: var score 0 · ::: counter score · ::: clock',
       '         ::: bar @score (значение из переменной) · {@score} в тексте',
       '',
@@ -1504,7 +1787,8 @@ const DEMO = [
     const server = http.createServer(function (req, res) {
       const url = decodeURIComponent((req.url || '/').split('?')[0]);
       if (url === '/demo') {
-        const src = fs.readFileSync(path.join(dir, 'demo', 'demo.md'), 'utf8');
+        const demoFile = path.join(dir, 'demo', 'demo.md');
+        const src = expandIncludes(fs.readFileSync(demoFile, 'utf8'), path.dirname(demoFile));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(buildPreviewDoc(src));
         return;
@@ -1766,17 +2050,25 @@ const DEMO = [
   const api = {
     VERSION: VERSION,
     THEME: THEME,
+    THEME_LIGHT: THEME_LIGHT,
     SYMBOLS: SYMBOLS,
     DEMO: DEMO,
     parseBlocks: parseBlocks,
     parseInline: parseInline,
     parseWidgetText: parseWidgetText,
+    parseFrontmatter: parseFrontmatter,
+    expandIncludes: expandIncludes,
     buildPreviewDoc: buildPreviewDoc,
     buildBodyHTML: buildBodyHTML,
     renderANSI: renderANSI,
     collectWidgets: collectWidgets,
+    collectVars: collectVars,
     defaultStates: defaultStates,
     refreshSource: refreshSource,
+    pageExtras: pageExtras,
+    viewerCss: viewerCss,
+    varsCss: varsCss,
+    themeVars: themeVars,
     openTui: openTui,
     runCli: runCli,
     setAscii: function (v) { asciiMode = v; },

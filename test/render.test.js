@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const md = require('../md-ui.js');
 
 test('API: версия и публичные функции', () => {
-  assert.strictEqual(md.VERSION, 'v0.1.0');
+  assert.strictEqual(md.VERSION, 'v0.2.0');
   for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates']) {
     assert.strictEqual(typeof md[fn], 'function', fn);
   }
@@ -188,4 +188,134 @@ test('buildPreviewDoc отдаёт состояние для живого пре
   const doc = md.buildPreviewDoc('::: var score 7\n');
   assert.ok(doc.includes('window.__MDUI'));
   assert.ok(doc.includes('"score":7'));
+});
+
+test('frontmatter убирается из парса, номера строк сохраняются', () => {
+  const src = '---\ntitle: Тест\nlang: ru\n---\n# Заголовок\n';
+  const ast = md.parseBlocks(src);
+  assert.strictEqual(ast.length, 1);
+  assert.strictEqual(ast[0].type, 'heading');
+  assert.strictEqual(ast[0].line, 4);
+});
+
+test('parseFrontmatter отдаёт мету и тело', () => {
+  const r = md.parseFrontmatter('---\ntitle: Страница\ndescription: оп\n---\nконтент\n');
+  assert.strictEqual(r.meta.title, 'Страница');
+  assert.strictEqual(r.meta.description, 'оп');
+  assert.ok(r.body.includes('контент'));
+});
+
+test('section и card собирают тело и рендерятся в HTML', () => {
+  const ast = md.parseBlocks('::: section Тема\nТекст тела.\n:::\n');
+  assert.strictEqual(ast[0].widget, 'section');
+  assert.strictEqual(ast[0].body, 'Текст тела.');
+  const html = md.buildBodyHTML('::: card Название\nВнутри.\n:::\n');
+  assert.ok(html.includes('mdui-card'));
+  assert.ok(html.includes('mdui-card-title'));
+  assert.ok(html.includes('Название'));
+});
+
+test('grid хранит число колонок и рендерит --cols', () => {
+  const w = md.parseBlocks('::: grid 2\n:::\n')[0];
+  assert.strictEqual(w.widget, 'grid');
+  assert.strictEqual(w.value, 2);
+  const html = md.buildBodyHTML('::: grid 2\nОдна.\n\nДве.\n:::\n');
+  assert.ok(html.includes('--cols:2'));
+});
+
+test('cols делит тело по --- на две части', () => {
+  const w = md.parseBlocks('::: cols\nСлева.\n\n---\n\nСправа.\n:::\n')[0];
+  assert.strictEqual(w.widget, 'cols');
+  assert.ok(w.parts[0].includes('Слева'));
+  assert.ok(w.parts[1].includes('Справа'));
+});
+
+test('инлайн-картинка ![alt](src)', () => {
+  const img = md.parseBlocks('Лого: ![MD](logo.png)\n')[0].inline.find((t) => t.t === 'img');
+  assert.ok(img);
+  assert.strictEqual(img.alt, 'MD');
+  assert.strictEqual(img.src, 'logo.png');
+  const html = md.buildBodyHTML('Лого: ![MD](logo.png)\n');
+  assert.ok(html.includes('<img'));
+  assert.ok(html.includes('logo.png'));
+  assert.ok(html.includes('MD'));
+});
+
+test('блочная картинка ::: img src alt', () => {
+  const html = md.buildBodyHTML('::: img logo.png Логотип\n');
+  assert.ok(html.includes('logo.png'));
+  assert.ok(html.includes('Логотип'));
+  const st = { focus: -1 };
+  md.refreshSource('::: img logo.png Логотип\n', st);
+  const res = md.renderANSI(st.ast, st, 40);
+  assert.ok(res.lines.join('\n').includes('изображение'));
+});
+
+test('внешняя ссылка открывается в новом окне, внутренняя — нет', () => {
+  const html = md.buildBodyHTML('[Внеш](https://example.com) и [Стр](page.md)\n');
+  assert.ok(html.includes('href="https://example.com" target="_blank"'));
+  assert.ok(html.includes('<a href="page.md">'));
+});
+
+test('тема и css попадают в head документа', () => {
+  const ex = md.pageExtras(md.parseBlocks('::: theme light\n'));
+  assert.strictEqual(ex.theme, 'light');
+  const doc = md.buildPreviewDoc('::: theme light\n\n::: css\nh1{color:red}\n:::\n\n# Заголовок\n');
+  assert.ok(doc.includes('--bg:#ffffff'));
+  assert.ok(doc.includes('h1{color:red}'));
+});
+
+test('include: веб-плейсхолдер и локальное разворачивание с защитой от циклов', () => {
+  const html = md.buildBodyHTML('::: include parts/head.md\n');
+  assert.ok(html.includes('mdui-include'));
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-include-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'part.md'), 'Часть. {Кнопка}');
+    const out = md.expandIncludes('::: include part.md\n', dir);
+    assert.ok(out.includes('Часть.'));
+    assert.ok(out.includes('{Кнопка}'));
+    fs.writeFileSync(path.join(dir, 'c.md'), '::: include c.md\n');
+    const cyc = md.expandIncludes('::: include c.md\n', dir);
+    assert.ok(cyc.includes('Циклическое'));
+    fs.writeFileSync(path.join(dir, 'missing.md'), '');
+    const miss = md.expandIncludes('::: include net.md\n', dir);
+    assert.ok(miss.includes('не найден'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('порядок виджетов не ломается с новыми блоками', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: section Тема\n::: button Один green\n:::\n::: grid 2\n::: button Два\n:::\n', st);
+  assert.strictEqual(st.widgets.length, 4);
+  const res = md.renderANSI(st.ast, st, 60);
+  assert.strictEqual(res.widx, st.widgets.length);
+});
+
+test('TUI: новые блоки рендерятся без сбоев', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: card Карта\n::: button Внутри\n:::\n::: img pic.png Фото\n', st);
+  const res = md.renderANSI(st.ast, st, 60);
+  const joined = res.lines.join('\n');
+  assert.ok(joined.includes('Карта'));
+  assert.ok(joined.includes('изображение'));
+});
+
+test('theme/css/include не попадают в фокус-цикл виджетов', () => {
+  const st = { focus: -1 };
+  md.refreshSource('::: var s 1\n::: theme light\n::: css\nx{}\n:::\n::: include a.md\n', st);
+  assert.strictEqual(st.widgets.length, 0);
+  const res = md.renderANSI(st.ast, st, 40);
+  assert.strictEqual(res.widx, 0);
+});
+
+test('модалка не заглатывает документ без закрывающего :::', () => {
+  const ast = md.parseBlocks('::: modal Точно?\nТекст внутри.\n\nА ещё параграф, и закрытия нет.\n');
+  const w = ast.find((b) => b.type === 'widget' && b.widget === 'modal');
+  assert.strictEqual(w.body, undefined);
+  assert.strictEqual(ast.length, 3);
 });
