@@ -600,3 +600,36 @@ test('buildSite: og:image из frontmatter', () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('E2E: сборка реального docs/ в статический сайт', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const repo = path.join(__dirname, '..');
+  const docs = path.join(repo, 'docs');
+  if (!fs.existsSync(docs)) return;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-e2e-'));
+  const out = path.join(root, 'site');
+  try {
+    const r = md.buildSite(docs, out, { base: 'https://olegzai.github.io/md-ui', title: 'md-ui' });
+    const names = r.pages.map((p) => p.outRel).sort();
+    for (const want of ['index.html', 'features.html', 'widgets.html', 'live.html', '404.html']) {
+      assert.ok(names.includes(want), 'нет страницы ' + want);
+    }
+    assert.ok(!names.some((n) => n.indexOf('_parts/') === 0), 'фрагменты не должны быть страницами');
+    assert.ok(!fs.existsSync(path.join(out, '_parts')), '_parts не должен попадать в сборку');
+    assert.ok(fs.existsSync(path.join(out, 'site-runtime.js')));
+    assert.ok(fs.existsSync(path.join(out, 'sitemap.xml')));
+    assert.ok(fs.existsSync(path.join(out, 'robots.txt')));
+    const home = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(home.includes('<main id="main">'));
+    assert.ok(home.includes('class="skip-link"'));
+    assert.ok(!home.includes('href="features.md"'), 'ссылки .md должны быть переписаны');
+    assert.ok(home.includes('href="features.html"'));
+    assert.ok(!home.includes('undefined'));
+    const sitemap = fs.readFileSync(path.join(out, 'sitemap.xml'), 'utf8');
+    assert.ok(sitemap.includes('https://olegzai.github.io/md-ui/features.html'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

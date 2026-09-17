@@ -1132,7 +1132,7 @@ const DEMO = [
     let n = 0;
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
-      if (e.name.charAt(0) === '.' || e.name === 'node_modules') continue;
+      if (e.name.charAt(0) === '.' || e.name.charAt(0) === '_' || e.name === 'node_modules') continue;
       const from = path.join(srcDir, e.name);
       const to = path.join(outDir, e.name);
       if (e.isDirectory()) {
