@@ -5,8 +5,8 @@ const assert = require('node:assert');
 const md = require('../md-ui.js');
 
 test('API: версия и публичные функции', () => {
-  assert.strictEqual(md.VERSION, 'v0.3.0');
-  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates', 'buildSite', 'seoDoc', 'rewriteMdLinks', 'parseFrontmatter', 'expandIncludes', 'loadDataSources', 'normRows', 'dataTableHTML', 'chartHTML']) {
+  assert.strictEqual(md.VERSION, 'v0.4.0');
+  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates', 'buildSite', 'seoDoc', 'rewriteMdLinks', 'parseFrontmatter', 'expandIncludes', 'loadDataSources', 'normRows', 'dataTableHTML', 'chartHTML', 'highlightCode']) {
     assert.strictEqual(typeof md[fn], 'function', fn);
   }
 });
@@ -516,6 +516,86 @@ test('buildSite встраивает данные в страницу и рис�
     const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
     assert.ok(html.includes('class="mdui-data" data-source="d"'));
     assert.ok(html.includes('<td>7</td>'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('highlightCode: ключевые слова, строки, комментарии, числа', () => {
+  const html = md.highlightCode('const x = "привет"; // да\nlet n = 42;', 'js');
+  assert.ok(html.includes('<span class="hl-kw">const</span>'));
+  assert.ok(html.includes('<span class="hl-str">&quot;привет&quot;</span>'));
+  assert.ok(html.includes('<span class="hl-com">// да</span>'));
+  assert.ok(html.includes('<span class="hl-num">42</span>'));
+});
+
+test('highlightCode экранирует HTML и не трогает неизвестные языки', () => {
+  const html = md.highlightCode('a < b && c > d', 'txt');
+  assert.strictEqual(html, 'a &lt; b &amp;&amp; c &gt; d');
+});
+
+test('код в документе получает класс языка и подсветку', () => {
+  const html = md.buildBodyHTML('```js\nconst x = 1;\n```\n');
+  assert.ok(html.includes('class="language-js"'));
+  assert.ok(html.includes('hl-kw'));
+});
+
+test('a11y: кнопки, вкладки, прогресс, модалка', () => {
+  const btn = md.buildBodyHTML('::: button Ок\n');
+  assert.ok(btn.includes('<button type="button"'));
+  const tabs = md.buildBodyHTML('::: tabs A / B\n');
+  assert.ok(tabs.includes('role="tablist"'));
+  assert.ok(tabs.includes('role="tab"'));
+  assert.ok(tabs.includes('aria-selected="true"'));
+  const bar = md.buildBodyHTML('::: bar 40\n');
+  assert.ok(bar.includes('role="progressbar"'));
+  assert.ok(bar.includes('aria-valuenow="40"'));
+  const modal = md.buildBodyHTML('::: modal Точно?\nТело\n:::\n');
+  assert.ok(modal.includes('role="dialog"'));
+  assert.ok(modal.includes('aria-modal="true"'));
+  assert.ok(modal.includes('aria-label="Точно?"'));
+  const ctr = md.buildBodyHTML('::: counter score\n');
+  assert.ok(ctr.includes('aria-label="Увеличить score"'));
+});
+
+test('seoDoc: skip-link, main, JSON-LD, og:image', () => {
+  const html = md.seoDoc({ title: 'Т', description: 'О', lang: 'ru', canonical: 'https://x/y', image: 'https://x/a.png', css: [], body: '<h1>Т</h1>' });
+  assert.ok(html.includes('class="skip-link" href="#main"'));
+  assert.ok(html.includes('<main id="main">'));
+  assert.ok(html.includes('application/ld+json'));
+  assert.ok(html.includes('"@type":"WebPage"'));
+  assert.ok(html.includes('property="og:image"'));
+  assert.ok(html.includes('href="https://x/y"'));
+});
+
+test('документ предпросмотра тоже доступен: skip-link и main', () => {
+  const doc = md.buildPreviewDoc('# Привет\n');
+  assert.ok(doc.includes('class="skip-link" href="#main"'));
+  assert.ok(doc.includes('<main id="main">'));
+  assert.ok(doc.includes('lang="ru"'));
+});
+
+test('светлая тема меняет фон документа', () => {
+  const light = md.buildPreviewDoc('::: theme light\n\n# Т\n');
+  const dark = md.buildPreviewDoc('# Т\n');
+  assert.ok(light.includes('#ffffff'));
+  assert.ok(!dark.includes('#ffffff'));
+});
+
+test('buildSite: og:image из frontmatter', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-img-'));
+  const src = path.join(root, 'src');
+  const out = path.join(root, 'out');
+  fs.mkdirSync(src, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(src, 'index.md'), '---\ntitle: Т\nimage: https://x/a.png\n---\n# Т\n');
+    md.buildSite(src, out, {});
+    const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(html.includes('property="og:image"'));
+    assert.ok(html.includes('https://x/a.png'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

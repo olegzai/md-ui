@@ -243,6 +243,43 @@ CSS-блок попадает в `<head>` страницы и может пер�
 
 ---
 
+## Доступность, подсветка, темы
+
+**Доступность.** Кнопки, вкладки, прогресс и модалки размечаются ARIA-ролями
+(`role="progressbar"`, `role="tablist"`, `role="dialog"` с `aria-modal`), у
+иконок-счётчиков есть `aria-label`, у страницы — skip-link «К содержимому» и
+landmark `<main id="main">`. Работает навигация с клавиатуры и
+`prefers-reduced-motion`.
+
+**Подсветка кода** — без зависимостей, для `js`/`ts`/`json`/`bash`/`sh`:
+
+````md
+```js
+const x = 42; // число и комментарий
+```
+````
+
+**Светлая тема** включается директивой или во frontmatter:
+
+```md
+::: theme light
+```
+
+```md
+---
+title: О проекте
+theme: light
+---
+```
+
+Или принудительно при сборке: `node md-ui.js build docs -o site --theme light`.
+
+**SEO.** Каждая собранная страница получает `title`, `description`, Open Graph
+(включая `og:image` из frontmatter), Twitter Card, `canonical` (при `--base`),
+`lang` и JSON-LD `WebPage`.
+
+---
+
 ## Сборка сайта
 
 `build` превращает каталог с `.md` в готовый статический сайт: страницы

@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 'v0.3.0';
+  const VERSION = 'v0.4.0';
 
 const DEMO = [
     '# md-ui — демо',
@@ -237,6 +237,40 @@ const DEMO = [
 
   function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  const HL_KEYWORDS = {
+    js: 'const|let|var|function|return|if|else|for|while|new|class|extends|import|from|export|default|async|await|try|catch|finally|throw|typeof|instanceof|of|in|this|null|undefined|true|false',
+    json: 'true|false|null',
+    bash: 'if|then|else|fi|for|do|done|while|in|echo|export|function|local|return|cd',
+  };
+  HL_KEYWORDS.ts = HL_KEYWORDS.js + '|interface|type|implements|public|private|protected|readonly|enum|as|declare';
+  HL_KEYWORDS.sh = HL_KEYWORDS.bash;
+  HL_KEYWORDS.shell = HL_KEYWORDS.bash;
+  HL_KEYWORDS.javascript = HL_KEYWORDS.js;
+  HL_KEYWORDS.typescript = HL_KEYWORDS.ts;
+
+  function highlightCode(text, lang) {
+    const key = (lang || '').toLowerCase();
+    const kws = HL_KEYWORDS[key];
+    if (!kws) return escapeHtml(text);
+    const re = new RegExp(
+      '(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/|#[^\\n]*)|("(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|`(?:\\\\.|[^`\\\\])*`)|\\b(0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b|\\b(' + kws + ')\\b',
+      'g'
+    );
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out += escapeHtml(text.slice(last, m.index));
+      if (m[1]) out += '<span class="hl-com">' + escapeHtml(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="hl-str">' + escapeHtml(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="hl-num">' + escapeHtml(m[3]) + '</span>';
+      else out += '<span class="hl-kw">' + escapeHtml(m[4]) + '</span>';
+      last = m.index + m[0].length;
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
   }
 
   function inlinesToText(tokens) {
@@ -636,6 +670,14 @@ const DEMO = [
     '.mdui-bar-val{font-family:"SF Mono",Consolas,monospace;color:$accent2;}',
     '.mdui-source{border:1px dashed $border;color:$dim;border-radius:8px;padding:8px 12px;background:$bg2;font-size:13px;margin:8px 0;}',
     '.mdui-every{margin:8px 0;}',
+    '.hl-com{color:$dim;font-style:italic;}',
+    '.hl-str{color:$green;}',
+    '.hl-num{color:$yellow;}',
+    '.hl-kw{color:$accent2;font-weight:600;}',
+    '.skip-link{position:absolute;left:-999px;top:0;background:$bg2;color:$text;padding:8px 14px;border:1px solid $accent;border-radius:0 0 8px 0;z-index:100;}',
+    '.skip-link:focus{left:0;}',
+    ':focus-visible{outline:2px solid $accent;outline-offset:2px;}',
+    '@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}',
   ];
 
   function cssVar(v, k) {
@@ -689,11 +731,11 @@ const DEMO = [
     'var cs=document.querySelectorAll(".mdui-clock .t");for(var ci=0;ci<cs.length;ci++)cs[ci].textContent=ts;',
     'var vs=window.__MDUI?window.__MDUI.vars:{};',
     'var rs=document.querySelectorAll(".mdui-ref");for(var ri=0;ri<rs.length;ri++){var k=rs[ri].getAttribute("data-ref");rs[ri].textContent=(k&&vs[k]!=null)?vs[k]:"";}',
-    'var bs=document.querySelectorAll(".mdui-bar");for(var bi=0;bi<bs.length;bi++){var dv=bs[bi].getAttribute("data-value");if(dv&&dv[0]==="@"){var vv=+vs[dv.slice(1)]||0;var fl=bs[bi].querySelector(".fill");if(fl)fl.style.width=vv+"%";var sp=bs[bi].querySelector("span");if(sp)sp.textContent=vv+"%";}}',
+    'var bs=document.querySelectorAll(".mdui-bar");for(var bi=0;bi<bs.length;bi++){var dv=bs[bi].getAttribute("data-value");if(dv&&dv[0]==="@"){var vv=+vs[dv.slice(1)]||0;var fl=bs[bi].querySelector(".fill");if(fl)fl.style.width=vv+"%";var sp=bs[bi].querySelector("span");if(sp)sp.textContent=vv+"%";bs[bi].setAttribute("aria-valuenow",vv);}}',
     '}',
     'document.addEventListener("click",function(e){var t=e.target;',
     'if(t.classList&&t.classList.contains("mdui-ctr")){var v=t.getAttribute("data-var"),d=+t.getAttribute("data-delta")||0;window.__MDUI.vars[v]=(+window.__MDUI.vars[v]||0)+d;refresh();return;}',
-    'if(t.classList&&t.classList.contains("mdui-btn")){var o=t.textContent;t.textContent="✓ "+o;setTimeout(function(){t.textContent=o;},800);}if(t.classList&&t.classList.contains("mdui-tab")){var ts=document.querySelectorAll(".mdui-tab");for(var i=0;i<ts.length;i++)ts[i].classList.remove("active");t.classList.add("active");}if(t.classList&&t.classList.contains("mdui-modal-btn")){var id=t.getAttribute("data-target");var mm=document.getElementById(id);if(mm)mm.classList.add("show");return;}if(t.classList&&t.classList.contains("mdui-modal-cls")){var m2=t.closest(".mdui-modal");if(m2)m2.classList.remove("show");return;}if(t.dataset&&t.dataset.srcLine!=null&&parent&&parent.postMessage){parent.postMessage({mduiSourceLine:+t.dataset.srcLine},"*");}});',
+    'if(t.classList&&t.classList.contains("mdui-btn")){var o=t.textContent;t.textContent="✓ "+o;setTimeout(function(){t.textContent=o;},800);}if(t.classList&&t.classList.contains("mdui-tab")){var ts=document.querySelectorAll(".mdui-tab");for(var i=0;i<ts.length;i++){ts[i].classList.remove("active");ts[i].setAttribute("aria-selected","false");}t.classList.add("active");t.setAttribute("aria-selected","true");}if(t.classList&&t.classList.contains("mdui-modal-btn")){var id=t.getAttribute("data-target");var mm=document.getElementById(id);if(mm)mm.classList.add("show");return;}if(t.classList&&t.classList.contains("mdui-modal-cls")){var m2=t.closest(".mdui-modal");if(m2)m2.classList.remove("show");return;}if(t.dataset&&t.dataset.srcLine!=null&&parent&&parent.postMessage){parent.postMessage({mduiSourceLine:+t.dataset.srcLine},"*");}});',
     'var mdocs=document.querySelectorAll(".mdui-modal");for(var mi=0;mi<mdocs.length;mi++){mdocs[mi].addEventListener("click",function(ev){if(ev.target===this)this.classList.remove("show");});}',
     'refresh();setInterval(refresh,1000);',
   ].join('');
@@ -705,7 +747,7 @@ const DEMO = [
     const style = node.style ? ' ' + node.style : '';
     const lineAttr = typeof node.line === 'number' ? ' data-src-line="' + node.line + '"' : '';
     if (node.widget === 'button') {
-      return '<button class="mdui-btn' + style + '"' + lineAttr + '>' + escapeHtml(node.label) + '</button>';
+      return '<button type="button" class="mdui-btn' + style + '"' + lineAttr + '>' + escapeHtml(node.label) + '</button>';
     }
     if (node.widget === 'fold') {
       const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
@@ -717,19 +759,19 @@ const DEMO = [
       const dv = isRef ? ' data-value="' + escapeHtml(v) + '"' : '';
       const width = isRef ? 0 : (v || 0);
       const txt = isRef ? '' : v;
-      return '<div class="mdui-bar' + style + '"' + lineAttr + dv + '><div class="track"><div class="fill" style="width:' + width + '%"></div></div><span>' + txt + '%</span></div>';
+      return '<div class="mdui-bar' + style + '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + width + '"' + lineAttr + dv + '><div class="track"><div class="fill" style="width:' + width + '%"></div></div><span>' + txt + '%</span></div>';
     }
     if (node.widget === 'tabs') {
       const labels = node.labels || [];
-      let h = '<div class="mdui-tabs"' + lineAttr + '>';
+      let h = '<div class="mdui-tabs" role="tablist"' + lineAttr + '>';
       for (let i = 0; i < labels.length; i++) {
-        h += '<button class="mdui-tab' + (i === 0 ? ' active' : '') + '">' + escapeHtml(labels[i]) + '</button>';
+        h += '<button type="button" role="tab" aria-selected="' + (i === 0 ? 'true' : 'false') + '" class="mdui-tab' + (i === 0 ? ' active' : '') + '">' + escapeHtml(labels[i]) + '</button>';
       }
       return h + '</div>';
     }
     if (node.widget === 'select') {
       const labels = node.labels || [];
-      let h = '<select class="mdui-select"' + lineAttr + '>';
+      let h = '<select class="mdui-select" aria-label="' + escapeHtml(node.label || 'Выбор') + '"' + lineAttr + '>';
       for (let i = 0; i < labels.length; i++) h += '<option' + (i === 0 ? ' selected' : '') + '>' + escapeHtml(labels[i]) + '</option>';
       return h + '</select>';
     }
@@ -749,9 +791,9 @@ const DEMO = [
     if (node.widget === 'modal') {
       const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
       const id = 'mdui-modal-' + (modalCounter++);
-      return '<button class="mdui-btn' + (node.style ? ' ' + node.style : '') + ' mdui-modal-btn" data-target="' + id + '"' + lineAttr + '>' + escapeHtml(node.label) + '</button>' +
-        '<div class="mdui-modal" id="' + id + '"><div class="mdui-modal-box">' + body +
-        '<p><button class="mdui-btn mdui-modal-cls"' + lineAttr + '>ОК</button></p></div></div>';
+      return '<button type="button" class="mdui-btn' + (node.style ? ' ' + node.style : '') + ' mdui-modal-btn" data-target="' + id + '" aria-haspopup="dialog"' + lineAttr + '>' + escapeHtml(node.label) + '</button>' +
+        '<div class="mdui-modal" id="' + id + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(node.label) + '"><div class="mdui-modal-box">' + body +
+        '<p><button type="button" class="mdui-btn mdui-modal-cls" aria-label="Закрыть"' + lineAttr + '>ОК</button></p></div></div>';
     }
     if (node.widget === 'note') {
       return '<div class="mdui-note"' + lineAttr + '><strong>' + g.note + '</strong> ' + escapeHtml(node.label) + '</div>';
@@ -768,7 +810,7 @@ const DEMO = [
     }
     if (node.widget === 'counter') {
       const name = node.name || node.label || 'count';
-      return '<span class="mdui-counter"' + lineAttr + '><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="-1">−</button><span class="mdui-ref" data-ref="' + escapeHtml(name) + '"></span><button class="mdui-btn mdui-ctr" data-var="' + escapeHtml(name) + '" data-delta="1">+</button></span>';
+      return '<span class="mdui-counter"' + lineAttr + '><button type="button" class="mdui-btn mdui-ctr" aria-label="Уменьшить ' + escapeHtml(name) + '" data-var="' + escapeHtml(name) + '" data-delta="-1">−</button><span class="mdui-ref" data-ref="' + escapeHtml(name) + '"></span><button type="button" class="mdui-btn mdui-ctr" aria-label="Увеличить ' + escapeHtml(name) + '" data-var="' + escapeHtml(name) + '" data-delta="1">+</button></span>';
     }
     if (node.widget === 'img') {
       const src = node.value || node.label || '';
@@ -864,7 +906,8 @@ const DEMO = [
       } else if (b.type === 'hr') {
         inner += '<hr' + id + '>';
       } else if (b.type === 'code') {
-        inner += '<pre' + id + '><code>' + escapeHtml(b.text) + '</code></pre>';
+        const langCls = b.lang ? ' class="language-' + escapeHtml(b.lang) + '"' : '';
+        inner += '<pre' + id + '><code' + langCls + '>' + highlightCode(b.text, b.lang) + '</code></pre>';
       } else if (b.type === 'quote') {
         inner += '<blockquote' + id + '>' + renderHTMLBlocks(b.content).inner + '</blockquote>';
       } else if (b.type === 'list') {
@@ -908,8 +951,9 @@ const DEMO = [
     activeSources = info.sources;
     const body = renderHTMLBlocks(ast).inner;
     const vars = collectVars(ast, {});
-    const doc = '<!DOCTYPE html><html><head>' + headFor(src) + '</head><body>' +
-      body + '<script>window.__MDUI=' + JSON.stringify({ vars: vars, data: activeData, sources: activeSources }) +
+    const doc = '<!DOCTYPE html><html lang="ru"><head>' + headFor(src) + '</head><body>' +
+      '<a class="skip-link" href="#main">К содержимому</a><main id="main">' + body + '</main>' +
+      '<script>window.__MDUI=' + JSON.stringify({ vars: vars, data: activeData, sources: activeSources }) +
       ';</script><script>' + PREVIEW_JS + DATA_RUNTIME_JS + '<\/script></body></html>';
     activeData = {};
     activeSources = [];
@@ -1027,6 +1071,14 @@ const DEMO = [
   }
 
   function seoDoc(o) {
+    const jsonld = {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: o.title,
+      inLanguage: o.lang || 'ru',
+    };
+    if (o.description) jsonld.description = o.description;
+    if (o.canonical) jsonld.url = o.canonical;
     const head = [
       '<meta charset="utf-8">',
       '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -1035,14 +1087,17 @@ const DEMO = [
       '<meta property="og:title" content="' + escapeHtml(o.title) + '">',
       o.description ? '<meta property="og:description" content="' + escapeHtml(o.description) + '">' : '',
       '<meta property="og:type" content="website">',
+      o.image ? '<meta property="og:image" content="' + escapeHtml(o.image) + '">' : '',
       '<meta name="twitter:card" content="summary">',
       o.canonical ? '<link rel="canonical" href="' + escapeHtml(o.canonical) + '">' : '',
+      '<script type="application/ld+json">' + JSON.stringify(jsonld) + '<\/script>',
       '<style>' + viewerCss(themeVars(o.theme)) + '</style>',
       (o.css && o.css.length) ? '<style>' + o.css.join('\n') + '</style>' : '',
     ].join('');
     const runtime = o.runtimeHref ? '<script src="' + escapeHtml(o.runtimeHref) + '" defer><\/script>' : '';
     return '<!DOCTYPE html><html lang="' + escapeHtml(o.lang || 'ru') + '"><head>' + head + '</head><body>' +
-      o.body + '<script>window.__MDUI=' + JSON.stringify({ vars: o.vars || {}, data: o.data || {}, sources: o.sources || [] }) + ';<\/script>' + runtime + '</body></html>';
+      '<a class="skip-link" href="#main">К содержимому</a><main id="main">' + o.body + '</main>' +
+      '<script>window.__MDUI=' + JSON.stringify({ vars: o.vars || {}, data: o.data || {}, sources: o.sources || [] }) + ';<\/script>' + runtime + '</body></html>';
   }
 
   function collectMdFiles(dir, acc) {
@@ -1132,6 +1187,7 @@ const DEMO = [
         canonical: base ? base + '/' + outRel.replace(/(^|\/)index\.html$/, '$1') : '',
         theme: theme, css: ex.css, body: body, vars: collectVars(ast, {}),
         data: dataInfo.data, sources: dataInfo.sources,
+        image: meta.image || '',
         runtimeHref: up + 'site-runtime.js',
       });
       const target = path.join(outDir, outRel);
@@ -2548,6 +2604,7 @@ const DEMO = [
     normRows: normRows,
     dataTableHTML: dataTableHTML,
     chartHTML: chartHTML,
+    highlightCode: highlightCode,
     defaultStates: defaultStates,
     refreshSource: refreshSource,
     pageExtras: pageExtras,
