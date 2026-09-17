@@ -57,6 +57,20 @@
 
 ::: bar @score big
 
+## Данные
+
+::: source cities data/cities.json
+
+::: data cities
+
+::: chart cities
+
+## Обновление
+
+::: every 3s
+::: clock
+:::
+
 ## Таблица
 
 | Урок | Готово |

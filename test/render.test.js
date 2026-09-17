@@ -5,8 +5,8 @@ const assert = require('node:assert');
 const md = require('../md-ui.js');
 
 test('API: версия и публичные функции', () => {
-  assert.strictEqual(md.VERSION, 'v0.2.0');
-  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates', 'buildSite', 'seoDoc', 'rewriteMdLinks', 'parseFrontmatter', 'expandIncludes']) {
+  assert.strictEqual(md.VERSION, 'v0.3.0');
+  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates', 'buildSite', 'seoDoc', 'rewriteMdLinks', 'parseFrontmatter', 'expandIncludes', 'loadDataSources', 'normRows', 'dataTableHTML', 'chartHTML']) {
     assert.strictEqual(typeof md[fn], 'function', fn);
   }
 });
@@ -41,7 +41,7 @@ test('вкладки / выбор / дерево разбивают options по
   }
 });
 
-test('русские слова не теги: fallback-кнопка с подписью', () => {
+test('кириллица не теги: fallback-кнопка с подписью', () => {
   const w = md.parseBlocks('::: кнопка Запустить\n')[0];
   assert.strictEqual(w.widget, 'button');
   assert.strictEqual(w.label, 'кнопка Запустить');
@@ -410,4 +410,113 @@ test('внутренние ссылки в собранной странице �
   const html = md.buildBodyHTML('[Стр](page.md) и [Веб](https://example.com)\n');
   assert.ok(html.includes('<a href="page.md">Стр</a>'));
   assert.ok(html.includes('href="https://example.com" target="_blank" rel="noopener"'));
+});
+
+test('source: имя и путь/URL разбираются', () => {
+  const ast = md.parseBlocks('::: source cities _data/cities.json\n');
+  const w = ast[0];
+  assert.strictEqual(w.widget, 'source');
+  assert.strictEqual(w.name, 'cities');
+  assert.strictEqual(w.value, '_data/cities.json');
+  const url = md.parseBlocks('::: source remote https://example.com/a.json\n')[0];
+  assert.strictEqual(url.value, 'https://example.com/a.json');
+});
+
+test('loadDataSources читает локальный JSON, URL уходит в sources', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-data-'));
+  try {
+    fs.writeFileSync(path.join(root, 'd.json'), '[{"k":1},{"k":2}]');
+    const ast = md.parseBlocks('::: source d d.json\n\n::: source r https://x.com/r.json\n');
+    const info = md.loadDataSources(ast, root);
+    assert.deepStrictEqual(info.data.d, [{ k: 1 }, { k: 2 }]);
+    assert.strictEqual(info.sources.length, 1);
+    assert.strictEqual(info.sources[0].name, 'r');
+    assert.strictEqual(info.sources[0].url, 'https://x.com/r.json');
+    assert.strictEqual(info.data.r, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('data и chart рендерят таблицу и полосы из загруженного источника', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-render-'));
+  try {
+    fs.writeFileSync(path.join(root, 'd.json'), '[{"город":"Киев","люди":100},{"город":"Львов","люди":50}]');
+    const src = '::: source d d.json\n\n::: data d\n\n::: chart d\n';
+    const doc = md.buildPreviewDoc(src, root);
+    assert.ok(doc.includes('class="mdui-data" data-source="d"'));
+    assert.ok(doc.includes('<th>город</th>'));
+    assert.ok(doc.includes('class="mdui-chart"'));
+    assert.ok(doc.includes('width:100%'));
+    assert.ok(doc.includes('width:50%'));
+    assert.ok(doc.includes('window.__MDUI='));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('data без источника — безопасный плейсхолдер', () => {
+  const html = md.buildBodyHTML('::: data missing\n');
+  assert.ok(html.includes('data-source-empty="missing"'));
+  assert.ok(html.includes('источник: missing'));
+});
+
+test('chart без источника — безопасный плейсхолдер', () => {
+  const html = md.buildBodyHTML('::: chart missing\n');
+  assert.ok(html.includes('data-source-empty="missing"'));
+});
+
+test('every — блок с телом и data-every', () => {
+  const ast = md.parseBlocks('::: every 3s\nТик\n:::\n');
+  assert.strictEqual(ast[0].widget, 'every');
+  assert.strictEqual(ast[0].value, 3);
+  assert.strictEqual(ast[0].body, 'Тик');
+  const html = md.buildBodyHTML('::: every 3s\nТик\n:::\n');
+  assert.ok(html.includes('class="mdui-every" data-every="3"'));
+  assert.ok(html.includes('Тик'));
+});
+
+test('source не попадает в фокус-цикл виджетов', () => {
+  const ast = md.parseBlocks('::: source d d.json\n\n::: button Ок\n');
+  const ws = md.collectWidgets(ast);
+  assert.strictEqual(ws.length, 1);
+  assert.strictEqual(ws[0].node.widget, 'button');
+});
+
+test('TUI: данные и график рендерятся без сбоев', () => {
+  const st = { widgets: [], focus: -1, vars: {}, live: { now: Date.now() }, data: { d: [{ x: 1 }, { x: 2 }] } };
+  const ast = md.parseBlocks('::: data d\n\n::: chart d\n');
+  st.ast = ast;
+  st.widgets = md.defaultStates(md.collectWidgets(ast));
+  const out = md.renderANSI(ast, st, 80);
+  const text = out.lines.join('\n');
+  assert.ok(text.includes('таблица d'));
+  assert.ok(text.includes('график d'));
+  assert.ok(text.includes('x'));
+});
+
+test('buildSite встраивает данные в страницу и рисует таблицу', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-site-data-'));
+  const src = path.join(root, 'src');
+  const out = path.join(root, 'out');
+  fs.mkdirSync(src, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(src, 'd.json'), '[{"x":7}]');
+    fs.writeFileSync(path.join(src, 'index.md'), '# Д\n\n::: source d d.json\n\n::: data d\n');
+    md.buildSite(src, out, {});
+    const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(html.includes('class="mdui-data" data-source="d"'));
+    assert.ok(html.includes('<td>7</td>'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

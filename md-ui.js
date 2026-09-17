@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 'v0.2.0';
+  const VERSION = 'v0.3.0';
 
 const DEMO = [
     '# md-ui — демо',
@@ -62,6 +62,20 @@ const DEMO = [
     '::: counter score',
     '',
     '::: bar @score big',
+    '',
+    '## Данные',
+    '',
+    '::: source cities data/cities.json',
+    '',
+    '::: data cities',
+    '',
+    '::: chart cities',
+    '',
+    '## Обновление',
+    '',
+    '::: every 3s',
+    '::: clock',
+    ':::',
     '',
     '## Таблица',
     '',
@@ -191,15 +205,19 @@ const DEMO = [
     'include': 'include',
     'theme': 'theme',
     'css': 'css',
+    'source': 'source',
+    'data': 'data',
+    'chart': 'chart',
+    'every': 'every',
   };
 
   const BODY_TYPES = {
     fold: 1, modal: 1, section: 1, card: 1, hero: 1, nav: 1, footer: 1,
-    banner: 1, grid: 1, cols: 1, css: 1,
+    banner: 1, grid: 1, cols: 1, css: 1, every: 1,
   };
 
   const STATE_ONLY = {
-    var: 1, theme: 1, css: 1, include: 1,
+    var: 1, theme: 1, css: 1, include: 1, source: 1,
   };
 
   const STYLE_WORDS = {
@@ -323,6 +341,30 @@ const DEMO = [
     if (widget === 'grid') {
       const mv = rest.match(/(\d+)/);
       if (mv) value = Math.max(1, Math.min(12, +mv[1]));
+      label = '';
+    }
+    if (widget === 'source') {
+      const m3 = /^(\S+)(?:[ \t]+([\s\S]*))?$/.exec(rest);
+      name = m3 && m3[1] ? m3[1] : rest;
+      value = m3 && m3[2] ? m3[2].trim() : '';
+      label = value;
+    }
+    if (widget === 'data') {
+      const m4 = /^(\S+)(?:\s+([\s\S]+))?$/.exec(rest);
+      name = m4 && m4[1] ? m4[1] : rest;
+      value = name;
+      label = m4 && m4[2] ? m4[2].trim() : name;
+    }
+    if (widget === 'chart') {
+      const parts = rest.split(/\s+/).filter(Boolean);
+      name = parts[0] || '';
+      value = name;
+      const kind = parts[1];
+      label = (STYLE_WORDS[kind] ? (parts[2] || name) : (kind || name));
+    }
+    if (widget === 'every') {
+      const me = /(\d+)/.exec(rest);
+      value = me ? Math.max(1, +me[1]) : 5;
       label = '';
     }
     return { widget: widget, labels: options, label: label, style: style, value: value, name: name };
@@ -585,6 +627,15 @@ const DEMO = [
     'figure.mdui-img{margin:16px 0;text-align:center;}',
     'figure.mdui-img img{max-width:100%;border-radius:8px;}',
     'figure.mdui-img figcaption{color:$dim;font-size:13px;margin-top:6px;}',
+    '.mdui-data{margin:16px 0;}',
+    '.mdui-chart{margin:16px 0;display:flex;flex-direction:column;gap:6px;}',
+    '.mdui-bar-row{display:grid;grid-template-columns:minmax(80px,auto) 1fr auto;align-items:center;gap:12px;font-size:14px;}',
+    '.mdui-bar-lbl{color:$dim;}',
+    '.mdui-bar-track{height:14px;background:$bg3;border:1px solid $border;border-radius:999px;overflow:hidden;}',
+    '.mdui-bar-track i{display:block;height:100%;background:$accent;border-radius:999px;}',
+    '.mdui-bar-val{font-family:"SF Mono",Consolas,monospace;color:$accent2;}',
+    '.mdui-source{border:1px dashed $border;color:$dim;border-radius:8px;padding:8px 12px;background:$bg2;font-size:13px;margin:8px 0;}',
+    '.mdui-every{margin:8px 0;}',
   ];
 
   function cssVar(v, k) {
@@ -768,6 +819,20 @@ const DEMO = [
     if (node.widget === 'include') {
       return '<div class="mdui-include"' + lineAttr + '>include: ' + escapeHtml(node.value || node.label || '') + '</div>';
     }
+    if (node.widget === 'source') {
+      return '';
+    }
+    if (node.widget === 'data') {
+      return dataTableHTML(node.name || node.value) ;
+    }
+    if (node.widget === 'chart') {
+      return chartHTML(node.name || node.value);
+    }
+    if (node.widget === 'every') {
+      const secs = node.value || 5;
+      const body = node.body ? renderHTMLBlocks(parseBlocks(node.body)).inner : '';
+      return '<div class="mdui-every" data-every="' + secs + '"' + lineAttr + '>' + body + '</div>';
+    }
     return '<span' + lineAttr + '>' + escapeHtml(node.label) + '</span>';
   }
 
@@ -835,12 +900,20 @@ const DEMO = [
     return { inner: inner };
   }
 
-  function buildPreviewDoc(src) {
+  function buildPreviewDoc(src, baseDir) {
     modalCounter = 1;
-    const body = renderHTMLBlocks(parseBlocks(src)).inner;
-    const vars = collectVars(parseBlocks(src), {});
-    return '<!DOCTYPE html><html><head>' + headFor(src) + '</head><body>' +
-      body + '<script>window.__MDUI=' + JSON.stringify({ vars: vars }) + ';</script><script>' + PREVIEW_JS + '<\/script></body></html>';
+    const ast = parseBlocks(src);
+    const info = loadDataSources(ast, baseDir);
+    activeData = info.data;
+    activeSources = info.sources;
+    const body = renderHTMLBlocks(ast).inner;
+    const vars = collectVars(ast, {});
+    const doc = '<!DOCTYPE html><html><head>' + headFor(src) + '</head><body>' +
+      body + '<script>window.__MDUI=' + JSON.stringify({ vars: vars, data: activeData, sources: activeSources }) +
+      ';</script><script>' + PREVIEW_JS + DATA_RUNTIME_JS + '<\/script></body></html>';
+    activeData = {};
+    activeSources = [];
+    return doc;
   }
 
   function buildBodyHTML(src) {
@@ -848,7 +921,102 @@ const DEMO = [
     return renderHTMLBlocks(parseBlocks(src)).inner;
   }
 
-  const SITE_RUNTIME_JS = PREVIEW_JS +
+  let activeData = {};
+  let activeSources = [];
+
+  function walkWidgets(ast, fn) {
+    for (let i = 0; i < ast.length; i++) {
+      const b = ast[i];
+      if (b.type === 'widget') {
+        fn(b);
+        if (BODY_TYPES[b.widget] && b.body) walkWidgets(parseBlocks(b.body), fn);
+      } else if (b.type === 'quote') {
+        walkWidgets(b.content, fn);
+      }
+    }
+  }
+
+  function loadDataSources(ast, baseDir) {
+    const data = {};
+    const sources = [];
+    walkWidgets(ast, function (b) {
+      if (b.widget !== 'source') return;
+      const name = b.name;
+      const loc = b.value || '';
+      if (!name || !loc) return;
+      if (/^https?:\/\//i.test(loc)) {
+        sources.push({ name: name, url: loc });
+        return;
+      }
+      if (!baseDir || typeof require !== 'function') return;
+      try {
+        const fsMod = require('fs');
+        const pathMod = require('path');
+        const fp = pathMod.resolve(baseDir, loc);
+        if (fsMod.existsSync(fp)) data[name] = JSON.parse(fsMod.readFileSync(fp, 'utf8'));
+      } catch (e) { /* ignore */ }
+    });
+    return { data: data, sources: sources };
+  }
+
+  function normRows(raw) {
+    if (!Array.isArray(raw)) return { headers: [], rows: [] };
+    if (raw.length && typeof raw[0] === 'object' && raw[0] !== null) {
+      const headers = Object.keys(raw[0]);
+      return { headers: headers, rows: raw.map(function (o) { return headers.map(function (h) { return o[h]; }); }) };
+    }
+    return { headers: [], rows: raw.map(function (n) { return [n]; }) };
+  }
+
+  function dataTableHTML(name) {
+    const raw = activeData[name];
+    if (raw == null) return '<div class="mdui-source" data-source-empty="' + escapeHtml(name) + '">источник: ' + escapeHtml(name) + '</div>';
+    const t = normRows(raw);
+    let h = '<table class="mdui-data" data-source="' + escapeHtml(name) + '">';
+    if (t.headers.length) {
+      h += '<thead><tr>' + t.headers.map(function (x) { return '<th>' + escapeHtml(String(x)) + '</th>'; }).join('') + '</tr></thead>';
+    }
+    h += '<tbody>' + t.rows.map(function (r) {
+      return '<tr>' + r.map(function (x) { return '<td>' + escapeHtml(String(x)) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody></table>';
+    return h;
+  }
+
+  function chartHTML(name) {
+    const raw = activeData[name];
+    if (raw == null) return '<div class="mdui-source" data-source-empty="' + escapeHtml(name) + '">источник: ' + escapeHtml(name) + '</div>';
+    const t = normRows(raw);
+    let max = 0;
+    const vals = t.rows.map(function (r) { const v = +r[r.length - 1] || 0; if (v > max) max = v; return v; });
+    let h = '<div class="mdui-chart" data-source="' + escapeHtml(name) + '" data-kind="bar">';
+    for (let i = 0; i < t.rows.length; i++) {
+      const lbl = t.rows[i].length > 1 ? t.rows[i].slice(0, -1).join(' ') : String(i + 1);
+      const pct = max ? Math.round(vals[i] / max * 100) : 0;
+      h += '<div class="mdui-bar-row"><span class="mdui-bar-lbl">' + escapeHtml(String(lbl)) + '</span>' +
+        '<span class="mdui-bar-track"><i style="width:' + pct + '%"></i></span>' +
+        '<span class="mdui-bar-val">' + escapeHtml(String(vals[i])) + '</span></div>';
+    }
+    return h + '</div>';
+  }
+
+  const DATA_RUNTIME_JS = [
+    'function mduiRender(el,arr){if(!arr)return;var kind=el.getAttribute("data-kind");',
+    'if(kind==="chart"){var rows=Array.isArray(arr)&&typeof arr[0]==="object"?arr:arr.map(function(n,i){return{i:i+1,v:n}});',
+    'var keys=rows[0]?Object.keys(rows[0]):[];var lk=keys[0],vk=keys[keys.length-1];var max=0;var vals=rows.map(function(r){return +r[vk]||0});',
+    'for(var i=0;i<vals.length;i++)if(vals[i]>max)max=vals[i];var h="";',
+    'for(var j=0;j<rows.length;j++){var pct=max?Math.round(vals[j]/max*100):0;h+=\'<div class="mdui-bar-row"><span class="mdui-bar-lbl">\'+String(rows[j][lk])+\'</span><span class="mdui-bar-track"><i style="width:\'+pct+\'%"></i></span><span class="mdui-bar-val">\'+vals[j]+\'</span></div>\';}el.innerHTML=h;return;}',
+    'if(typeof arr[0]==="object"&&arr[0]!==null){var hs=Object.keys(arr[0]);var t="<thead><tr>";for(var a=0;a<hs.length;a++)t+="<th>"+String(hs[a])+"</th>";t+="</tr></thead><tbody>";',
+    'for(var r=0;r<arr.length;r++){t+="<tr>";for(var c=0;c<hs.length;c++)t+="<td>"+String(arr[r][hs[c]])+"</td>";t+="</tr>";}el.innerHTML=t+"</tbody>";return;}',
+    'var th="<tbody>";for(var x=0;x<arr.length;x++)th+="<tr><td>"+String(arr[x])+"</td></tr>";el.innerHTML=th+"</tbody>";}',
+    'function renderSources(){var s=(window.__MDUI&&window.__MDUI.sources)||[];var d=(window.__MDUI&&window.__MDUI.data)||{};',
+    'for(var i=0;i<s.length;i++){(function(sc){fetch(sc.url).then(function(r){return r.json()}).then(function(j){window.__MDUI.data[sc.name]=j;',
+    'var els=document.querySelectorAll(\'[data-source="\'+sc.name+\'"]\');for(var k=0;k<els.length;k++)mduiRender(els[k],j);}).catch(function(){});})(s[i]);}',
+    'var de=document.querySelectorAll("[data-source-empty]");for(var q=0;q<de.length;q++){var nm=de[q].getAttribute("data-source-empty");if(d[nm]!=null){de[q].className="mdui-"+(de[q].getAttribute("data-kind")==="chart"?"chart":"data");de[q].removeAttribute("data-source-empty");de[q].setAttribute("data-source",nm);mduiRender(de[q],d[nm]);}}}',
+    'renderSources();',
+    'var evs=document.querySelectorAll("[data-every]");if(evs.length){var mn=1e9;for(var z=0;z<evs.length;z++){var sv=+evs[z].getAttribute("data-every")||5;if(sv<mn)mn=sv;}setInterval(renderSources,mn*1000);}',
+  ].join('');
+
+  const SITE_RUNTIME_JS = PREVIEW_JS + DATA_RUNTIME_JS +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape"){var ms=document.querySelectorAll(".mdui-modal.show");for(var i=0;i<ms.length;i++)ms[i].classList.remove("show");}});';
 
   function rewriteMdLinks(html) {
@@ -874,7 +1042,7 @@ const DEMO = [
     ].join('');
     const runtime = o.runtimeHref ? '<script src="' + escapeHtml(o.runtimeHref) + '" defer><\/script>' : '';
     return '<!DOCTYPE html><html lang="' + escapeHtml(o.lang || 'ru') + '"><head>' + head + '</head><body>' +
-      o.body + '<script>window.__MDUI=' + JSON.stringify({ vars: o.vars || {} }) + ';<\/script>' + runtime + '</body></html>';
+      o.body + '<script>window.__MDUI=' + JSON.stringify({ vars: o.vars || {}, data: o.data || {}, sources: o.sources || [] }) + ';<\/script>' + runtime + '</body></html>';
   }
 
   function collectMdFiles(dir, acc) {
@@ -943,7 +1111,12 @@ const DEMO = [
       const src = expandIncludes(fm.body, path.dirname(abs));
       const ast = parseBlocks(src);
       const ex = pageExtras(ast);
+      const dataInfo = loadDataSources(ast, path.dirname(abs));
+      activeData = dataInfo.data;
+      activeSources = dataInfo.sources;
       const body = rewriteMdLinks(renderHTMLBlocks(ast).inner);
+      activeData = {};
+      activeSources = [];
       const firstH = ast.filter(function (b) { return b.type === 'heading'; })[0];
       const title = meta.title || (firstH ? inlinesToText(firstH.inline) : path.basename(rel, '.md'));
       const depth = outRel.split('/').length - 1;
@@ -958,6 +1131,7 @@ const DEMO = [
         title: title, description: meta.description || '', lang: meta.lang || 'ru',
         canonical: base ? base + '/' + outRel.replace(/(^|\/)index\.html$/, '$1') : '',
         theme: theme, css: ex.css, body: body, vars: collectVars(ast, {}),
+        data: dataInfo.data, sources: dataInfo.sources,
         runtimeHref: up + 'site-runtime.js',
       });
       const target = path.join(outDir, outRel);
@@ -1409,6 +1583,40 @@ const DEMO = [
           const src = b.value || label || '';
           const alt = b.value ? label : '';
           lines.push(COL.blue + '[изображение]' + C.reset + (alt ? COL.text + ' ' + alt + ' ' + C.reset : '') + COL.textDim + '(' + src + ')' + C.reset);
+        } else if (b.widget === 'data') {
+          const nm = b.name || b.value || label;
+          const raw = st.data && st.data[nm];
+          lines.push((focused ? C.reverse : COL.accent2) + '[' + num + '] таблица ' + nm + C.reset);
+          if (Array.isArray(raw) && raw.length) {
+            const t = normRows(raw);
+            if (t.headers.length) lines.push('  ' + COL.textDim + t.headers.join(' | ') + C.reset);
+            for (let ri = 0; ri < t.rows.length; ri++) lines.push('  ' + COL.text + t.rows[ri].join(' | ') + C.reset);
+          } else {
+            lines.push('  ' + COL.textDim + '(нет данных)' + C.reset);
+          }
+        } else if (b.widget === 'chart') {
+          const nm = b.name || b.value || label;
+          const raw = st.data && st.data[nm];
+          lines.push((focused ? C.reverse : COL.accent2) + '[' + num + '] график ' + nm + C.reset);
+          if (Array.isArray(raw) && raw.length) {
+            const t = normRows(raw);
+            let max = 0;
+            const vals = t.rows.map(function (r) { const v = +r[r.length - 1] || 0; if (v > max) max = v; return v; });
+            for (let ri = 0; ri < t.rows.length; ri++) {
+              const lbl = t.rows[ri].length > 1 ? t.rows[ri].slice(0, -1).join(' ') : String(ri + 1);
+              const bars = max ? Math.round(vals[ri] / max * 20) : 0;
+              lines.push('  ' + COL.text + lbl + ' ' + COL.accent2 + Array(bars + 1).join(asciiMode ? '#' : '\u2588') + ' ' + COL.textDim + vals[ri] + C.reset);
+            }
+          } else {
+            lines.push('  ' + COL.textDim + '(нет данных)' + C.reset);
+          }
+        } else if (b.widget === 'every') {
+          lines.push(COL.textDim + '[каждые ' + (b.value || 5) + 'с]' + C.reset);
+          if (b.body) {
+            const sub = renderANSI(parseBlocks(b.body), { widgets: st.widgets, focus: st.focus, widx: widx, data: st.data, live: st.live }, Math.max(4, width - 2));
+            widx = sub.widx;
+            for (let si = 0; si < sub.lines.length; si++) lines.push('  ' + sub.lines[si]);
+          }
         } else if (b.widget === 'section' || b.widget === 'card' || b.widget === 'hero' || b.widget === 'nav' || b.widget === 'footer' || b.widget === 'banner') {
           const mark = { section: '§', card: '▣', hero: '★', nav: '≡', footer: '▼', banner: '!' }[b.widget] || '»';
           const headCol = b.widget === 'nav' || b.widget === 'footer' ? COL.textDim : (b.widget === 'card' ? COL.accent2 : colorOf(b.style));
@@ -1447,6 +1655,13 @@ const DEMO = [
     st.ast = parseBlocks(source);
     st.widgets = defaultStates(collectWidgets(st.ast));
     st.vars = collectVars(st.ast, {});
+    let baseDir = null;
+    if (st.filePath && typeof require === 'function') {
+      try { baseDir = require('path').dirname(require('path').resolve(st.filePath)); } catch (e) { baseDir = null; }
+    }
+    const info = loadDataSources(st.ast, baseDir);
+    st.data = info.data;
+    st.sources = info.sources;
     return st;
   }
 
@@ -1529,7 +1744,7 @@ const DEMO = [
     function render() {
       const lay = layout();
       if (st.viewMode === 'html') {
-        st.lastRenderedLines = buildPreviewDoc(ed.lines.join('\n')).split('\n');
+        st.lastRenderedLines = buildPreviewDoc(ed.lines.join('\n'), st.filePath ? path.dirname(path.resolve(st.filePath)) : null).split('\n');
         st.lastRendered = [];
       } else {
         const res = renderANSI(st.ast, st, lay.pvW);
@@ -1927,7 +2142,7 @@ const DEMO = [
       const target = file || path.join(__dirname, 'demo', 'demo.md');
       const src = expandIncludes(fs.readFileSync(target, 'utf8'), path.dirname(target));
       if (rest.indexOf('--body') >= 0) process.stdout.write(buildBodyHTML(src) + '\n');
-      else process.stdout.write(buildPreviewDoc(src) + '\n');
+      else process.stdout.write(buildPreviewDoc(src, path.dirname(path.resolve(target))) + '\n');
       return;
     }
     if (cmd === 'build') {
@@ -2000,6 +2215,8 @@ const DEMO = [
       '         frontmatter --- title:… --- · [текст](page.md) · ![alt](img.png)',
       'Live:    ::: var score 0 · ::: counter score · ::: clock',
       '         ::: bar @score (значение из переменной) · {@score} в тексте',
+      'Данные:  ::: source d data.json · ::: data d · ::: chart d',
+      '         ::: every 3s (блок обновляется каждые N секунд)',
       '',
       'TUI: Tab — фокус виджета · Enter/Space — действие · 1..9 — быстрый переход',
       '     R — предпросмотр ⇄ HTML · Ctrl+K — символы · Ctrl+S — сохранить · Ctrl+Q — выход',
@@ -2036,7 +2253,7 @@ const DEMO = [
         const demoFile = path.join(dir, 'demo', 'demo.md');
         const src = expandIncludes(fs.readFileSync(demoFile, 'utf8'), path.dirname(demoFile));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(buildPreviewDoc(src));
+        res.end(buildPreviewDoc(src, path.dirname(demoFile)));
         return;
       }
       let rel = staticDir
@@ -2327,6 +2544,10 @@ const DEMO = [
     renderANSI: renderANSI,
     collectWidgets: collectWidgets,
     collectVars: collectVars,
+    loadDataSources: loadDataSources,
+    normRows: normRows,
+    dataTableHTML: dataTableHTML,
+    chartHTML: chartHTML,
     defaultStates: defaultStates,
     refreshSource: refreshSource,
     pageExtras: pageExtras,
