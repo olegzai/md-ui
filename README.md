@@ -14,6 +14,9 @@ node md-ui.js                 # терминальный редактор demo/d
 node md-ui.js serve 8123      # веб-сервер → http://localhost:8123/demo
 node md-ui.js convert doc.md  # печатает HTML (тот же, что в браузере)
 node md-ui.js convert doc.md --body   # только содержимое body
+node md-ui.js build docs -o site      # собрать статический сайт из каталога
+node md-ui.js build docs -o site --watch   # то же, с пересборкой на лету
+node md-ui.js serve 8080 site         # раздать готовый сайт локально
 node md-ui.js doc.md --ascii  # ASCII-режим для простых терминалов
 ```
 
@@ -207,6 +210,44 @@ CSS-блок попадает в `<head>` страницы и может пер�
 ```md
 ::: tabs Игра / Музыка / Книги
 ```
+
+---
+
+## Сборка сайта
+
+`build` превращает каталог с `.md` в готовый статический сайт: страницы
+становятся `.html`, внутренние ссылки `[о нас](about.md)` переписываются в
+`about.html`, копируются ресурсы (картинки, css), генерируются `index.html`,
+`404.html`, подключается `site-runtime.js` (оживляет виджеты без зависимостей).
+
+```sh
+node md-ui.js build docs -o site                    # из docs/ в site/
+node md-ui.js build docs -o site --base https://example.com
+node md-ui.js build docs -o site --watch            # пересборка при изменениях
+node md-ui.js serve 8080 site                       # локальный просмотр
+```
+
+Что попадает в `<head>` каждой страницы:
+
+- `<title>` и `<meta name="description">` из frontmatter;
+- Open Graph и Twitter Card (`og:title`, `og:description`, `og:type`);
+- `lang` из frontmatter (`lang: ru`);
+- `canonical` при указании `--base`;
+- тема и ваши `::: css` прямо в разметке.
+
+При `--base` дополнительно пишутся `sitemap.xml` и `robots.txt`.
+
+**Фрагменты** — файлы и каталоги, начинающиеся с `_`, не становятся страницами
+и используются только через `::: include`. Это удобно для общего меню и подвала:
+
+```md
+::: nav
+::: include _parts/nav.md
+:::
+```
+
+Сгенерированный сайт полностью читается и без JavaScript (контент
+предрендерен в HTML); скрипт лишь «оживляет» счётчики, часы, модалки и вкладки.
 
 ---
 

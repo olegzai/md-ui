@@ -6,7 +6,7 @@ const md = require('../md-ui.js');
 
 test('API: версия и публичные функции', () => {
   assert.strictEqual(md.VERSION, 'v0.2.0');
-  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates']) {
+  for (const fn of ['parseBlocks', 'parseInline', 'buildPreviewDoc', 'buildBodyHTML', 'renderANSI', 'collectWidgets', 'defaultStates', 'buildSite', 'seoDoc', 'rewriteMdLinks', 'parseFrontmatter', 'expandIncludes']) {
     assert.strictEqual(typeof md[fn], 'function', fn);
   }
 });
@@ -318,4 +318,96 @@ test('модалка не заглатывает документ без зак�
   const w = ast.find((b) => b.type === 'widget' && b.widget === 'modal');
   assert.strictEqual(w.body, undefined);
   assert.strictEqual(ast.length, 3);
+});
+test('buildSite собирает статический сайт: страницы, вложенность, ресурсы, runtime, 404', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-build-'));
+  const src = path.join(root, 'src');
+  const out = path.join(root, 'out');
+  fs.mkdirSync(path.join(src, 'guide'), { recursive: true });
+  fs.mkdirSync(path.join(src, 'assets'), { recursive: true });
+  try {
+    fs.writeFileSync(path.join(src, 'index.md'), '---\ntitle: Главная\ndescription: Описание\nlang: ru\n---\n# Главная\n\n[m](about.md) [g](guide/intro.md)\n');
+    fs.writeFileSync(path.join(src, 'about.md'), '---\ntitle: О нас\n---\n# О нас\n\n[назад](index.md)\n');
+    fs.writeFileSync(path.join(src, 'guide', 'intro.md'), '# Введение\n');
+    fs.writeFileSync(path.join(src, 'assets', 'logo.png'), 'PNG');
+    const r = md.buildSite(src, out, { base: 'https://example.com' });
+    assert.ok(fs.existsSync(path.join(out, 'index.html')));
+    assert.ok(fs.existsSync(path.join(out, 'about.html')));
+    assert.ok(fs.existsSync(path.join(out, 'guide', 'intro.html')));
+    assert.ok(fs.existsSync(path.join(out, 'site-runtime.js')));
+    assert.ok(fs.existsSync(path.join(out, '404.html')));
+    assert.ok(fs.existsSync(path.join(out, 'assets', 'logo.png')));
+    assert.ok(fs.existsSync(path.join(out, 'sitemap.xml')));
+    assert.ok(fs.existsSync(path.join(out, 'robots.txt')));
+    assert.strictEqual(r.assets, 1);
+    const idx = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(idx.includes('href="about.html"'));
+    assert.ok(idx.includes('href="guide/intro.html"'));
+    assert.ok(!idx.includes('about.md'));
+    const nested = fs.readFileSync(path.join(out, 'guide', 'intro.html'), 'utf8');
+    assert.ok(nested.includes('src="../site-runtime.js"'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('buildSite: SEO-головa, тема, canonical', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-seo-'));
+  const src = path.join(root, 'src');
+  const out = path.join(root, 'out');
+  fs.mkdirSync(src, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(src, 'index.md'), '---\ntitle: Заголовок\ndescription: Описание\nlang: en\ntheme: light\n---\n# Тело\n');
+    md.buildSite(src, out, { base: 'https://example.com' });
+    const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(html.includes('<html lang="en">'));
+    assert.ok(html.includes('<title>Заголовок</title>'));
+    assert.ok(html.includes('name="description" content="Описание"'));
+    assert.ok(html.includes('property="og:title" content="Заголовок"'));
+    assert.ok(html.includes('rel="canonical" href="https://example.com/"'));
+    assert.ok(html.includes('--bg:#ffffff'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('buildSite генерирует индекс-листинг без index.md', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mdui-list-'));
+  const src = path.join(root, 'src');
+  const out = path.join(root, 'out');
+  fs.mkdirSync(src, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(src, 'one.md'), '# Один\n');
+    fs.writeFileSync(path.join(src, 'two.md'), '# Два\n');
+    const r = md.buildSite(src, out, {});
+    const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert.ok(html.includes('href="one.html"'));
+    assert.ok(html.includes('href="two.html"'));
+    assert.ok(r.pages.some((p) => p.generated));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rewriteMdLinks переписывает только относительные .md', () => {
+  const html = '<a href="a.md">A</a><a href="https://x.com/b.md">B</a><a href="sub/c.md#f">C</a>';
+  const out = md.rewriteMdLinks(html);
+  assert.ok(out.includes('href="a.html"'));
+  assert.ok(out.includes('https://x.com/b.md'));
+  assert.ok(out.includes('href="sub/c.html#f"'));
+});
+
+test('внутренние ссылки в собранной странице без target, внешние — с target', () => {
+  const html = md.buildBodyHTML('[Стр](page.md) и [Веб](https://example.com)\n');
+  assert.ok(html.includes('<a href="page.md">Стр</a>'));
+  assert.ok(html.includes('href="https://example.com" target="_blank" rel="noopener"'));
 });

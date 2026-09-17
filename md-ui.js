@@ -587,12 +587,18 @@ const DEMO = [
     'figure.mdui-img figcaption{color:$dim;font-size:13px;margin-top:6px;}',
   ];
 
+  function cssVar(v, k) {
+    if (v[k] != null) return v[k];
+    if (k === 'dim') return v.textDim;
+    return v[k];
+  }
+
   function varsCss(v) {
-    return ':root{' + ['--bg:$bg', '--bg2:$bg2', '--bg3:$bg3', '--border:$border', '--text:$text', '--dim:$textDim', '--accent:$accent', '--accent2:$accent2', '--green:$green', '--red:$red', '--blue:$blue', '--yellow:$yellow'].join(';').replace(/\$(\w+)/g, function (m, k) { return v[k]; }) + '}';
+    return ':root{' + ['--bg:$bg', '--bg2:$bg2', '--bg3:$bg3', '--border:$border', '--text:$text', '--dim:$dim', '--accent:$accent', '--accent2:$accent2', '--green:$green', '--red:$red', '--blue:$blue', '--yellow:$yellow'].join(';').replace(/\$(\w+)/g, function (m, k) { return cssVar(v, k); }) + '}';
   }
 
   function viewerCss(v) {
-    return varsCss(v) + VIEWER_RULES.join('').replace(/\$(\w+)/g, function (m, k) { return v[k]; });
+    return varsCss(v) + VIEWER_RULES.join('').replace(/\$(\w+)/g, function (m, k) { return cssVar(v, k); });
   }
 
   function pageExtras(ast, out) {
@@ -840,6 +846,199 @@ const DEMO = [
   function buildBodyHTML(src) {
     modalCounter = 1;
     return renderHTMLBlocks(parseBlocks(src)).inner;
+  }
+
+  const SITE_RUNTIME_JS = PREVIEW_JS +
+    'document.addEventListener("keydown",function(e){if(e.key==="Escape"){var ms=document.querySelectorAll(".mdui-modal.show");for(var i=0;i<ms.length;i++)ms[i].classList.remove("show");}});';
+
+  function rewriteMdLinks(html) {
+    return html.replace(/(href=")([^"#][^"]*?)\.md(#[^"]*)?(")/g, function (m, a, p, h, q) {
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p) || p.indexOf('//') === 0) return m;
+      return a + p + '.html' + (h || '') + q;
+    });
+  }
+
+  function seoDoc(o) {
+    const head = [
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<title>' + escapeHtml(o.title) + '</title>',
+      o.description ? '<meta name="description" content="' + escapeHtml(o.description) + '">' : '',
+      '<meta property="og:title" content="' + escapeHtml(o.title) + '">',
+      o.description ? '<meta property="og:description" content="' + escapeHtml(o.description) + '">' : '',
+      '<meta property="og:type" content="website">',
+      '<meta name="twitter:card" content="summary">',
+      o.canonical ? '<link rel="canonical" href="' + escapeHtml(o.canonical) + '">' : '',
+      '<style>' + viewerCss(themeVars(o.theme)) + '</style>',
+      (o.css && o.css.length) ? '<style>' + o.css.join('\n') + '</style>' : '',
+    ].join('');
+    const runtime = o.runtimeHref ? '<script src="' + escapeHtml(o.runtimeHref) + '" defer><\/script>' : '';
+    return '<!DOCTYPE html><html lang="' + escapeHtml(o.lang || 'ru') + '"><head>' + head + '</head><body>' +
+      o.body + '<script>window.__MDUI=' + JSON.stringify({ vars: o.vars || {} }) + ';<\/script>' + runtime + '</body></html>';
+  }
+
+  function collectMdFiles(dir, acc) {
+    const fs = require('fs');
+    const path = require('path');
+    acc = acc || [];
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      return acc;
+    }
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.name.charAt(0) === '.' || e.name.charAt(0) === '_' || e.name === 'node_modules') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) collectMdFiles(full, acc);
+      else if (/\.md$/i.test(e.name)) acc.push(full);
+    }
+    return acc;
+  }
+
+  function copyAssets(srcDir, outDir) {
+    const fs = require('fs');
+    const path = require('path');
+    let entries = [];
+    try {
+      entries = fs.readdirSync(srcDir, { withFileTypes: true });
+    } catch (e) {
+      return 0;
+    }
+    let n = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.name.charAt(0) === '.' || e.name === 'node_modules') continue;
+      const from = path.join(srcDir, e.name);
+      const to = path.join(outDir, e.name);
+      if (e.isDirectory()) {
+        fs.mkdirSync(to, { recursive: true });
+        n += copyAssets(from, to);
+      } else if (!/\.md$/i.test(e.name)) {
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.copyFileSync(from, to);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  function buildSite(srcDir, outDir, opts) {
+    opts = opts || {};
+    const fs = require('fs');
+    const path = require('path');
+    if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory()) {
+      throw new Error('Источник не найден или не каталог: ' + srcDir);
+    }
+    fs.mkdirSync(outDir, { recursive: true });
+    const files = collectMdFiles(srcDir);
+    const pages = [];
+    for (let i = 0; i < files.length; i++) {
+      const abs = files[i];
+      const rel = path.relative(srcDir, abs).split(path.sep).join('/');
+      const outRel = rel.replace(/\.md$/i, '.html');
+      const fm = parseFrontmatter(fs.readFileSync(abs, 'utf8'));
+      const meta = fm.meta || {};
+      const src = expandIncludes(fm.body, path.dirname(abs));
+      const ast = parseBlocks(src);
+      const ex = pageExtras(ast);
+      const body = rewriteMdLinks(renderHTMLBlocks(ast).inner);
+      const firstH = ast.filter(function (b) { return b.type === 'heading'; })[0];
+      const title = meta.title || (firstH ? inlinesToText(firstH.inline) : path.basename(rel, '.md'));
+      const depth = outRel.split('/').length - 1;
+      const up = depth > 0 ? new Array(depth + 1).join('../') : '';
+      const theme = meta.theme || ex.theme;
+      const base = (meta.base || opts.base || '').replace(/\/$/, '');
+      const rec = {
+        srcRel: rel, outRel: outRel, title: title, description: meta.description || '',
+        theme: theme || null,
+      };
+      rec.html = seoDoc({
+        title: title, description: meta.description || '', lang: meta.lang || 'ru',
+        canonical: base ? base + '/' + outRel.replace(/(^|\/)index\.html$/, '$1') : '',
+        theme: theme, css: ex.css, body: body, vars: collectVars(ast, {}),
+        runtimeHref: up + 'site-runtime.js',
+      });
+      const target = path.join(outDir, outRel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, rec.html);
+      pages.push(rec);
+    }
+    if (!fs.existsSync(path.join(outDir, 'index.html'))) {
+      const listing = '<h1>md-ui</h1><ul>' + pages.map(function (p) {
+        return '<li><a href="' + p.outRel + '">' + escapeHtml(p.title) + '</a></li>';
+      }).join('') + '</ul>';
+      fs.writeFileSync(path.join(outDir, 'index.html'), seoDoc({
+        title: opts.title || 'md-ui', description: '', lang: 'ru', theme: opts.theme || null,
+        css: [], body: listing, vars: {}, runtimeHref: 'site-runtime.js',
+      }));
+      pages.unshift({ srcRel: null, outRel: 'index.html', title: opts.title || 'md-ui', generated: true });
+    }
+    if (!fs.existsSync(path.join(outDir, '404.html'))) {
+      fs.writeFileSync(path.join(outDir, '404.html'), seoDoc({
+        title: 'Страница не найдена', description: '', lang: 'ru', theme: opts.theme || null,
+        css: [], body: '<h1>404</h1><p>Страница не найдена. <a href="/">На главную</a></p>',
+        vars: {}, runtimeHref: 'site-runtime.js',
+      }));
+    }
+    fs.writeFileSync(path.join(outDir, 'site-runtime.js'), SITE_RUNTIME_JS + '\n');
+    const base = (opts.base || '').replace(/\/$/, '');
+    if (base) {
+      const urls = pages.map(function (p) {
+        return '  <url><loc>' + base + '/' + p.outRel.replace(/(^|\/)index\.html$/, '$1') + '</loc></url>';
+      }).join('\n');
+      fs.writeFileSync(path.join(outDir, 'sitemap.xml'),
+        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '\n</urlset>\n');
+      fs.writeFileSync(path.join(outDir, 'robots.txt'), 'User-agent: *\nAllow: /\nSitemap: ' + base + '/sitemap.xml\n');
+    }
+    const assets = copyAssets(srcDir, outDir);
+    return { outDir: outDir, pages: pages, assets: assets };
+  }
+
+  function startWatch(srcDir, outDir, opts) {
+    const fs = require('fs');
+    const path = require('path');
+    let stamp = 0;
+    function snapshot() {
+      const files = collectMdFiles(srcDir).concat(
+        (function assets(d, a) {
+          a = a || [];
+          let es = [];
+          try { es = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return a; }
+          for (let i = 0; i < es.length; i++) {
+            if (es[i].name.charAt(0) === '.') continue;
+            const f = path.join(d, es[i].name);
+            if (es[i].isDirectory()) assets(f, a);
+            else if (!/\.md$/i.test(es[i].name)) a.push(f);
+          }
+          return a;
+        })(srcDir, [])
+      );
+      let s = 0;
+      for (let i = 0; i < files.length; i++) {
+        try { s += fs.statSync(files[i]).mtimeMs; } catch (e) { /* ignore */ }
+      }
+      return s;
+    }
+    function rebuild() {
+      try {
+        const r = buildSite(srcDir, outDir, opts);
+        process.stdout.write('md-ui: собрано страниц — ' + r.pages.length + ' → ' + outDir + '\n');
+      } catch (e) {
+        process.stdout.write('md-ui: ошибка сборки — ' + e.message + '\n');
+      }
+    }
+    rebuild();
+    stamp = snapshot();
+    process.stdout.write('md-ui: слежу за ' + srcDir + ' (Ctrl+C — выход)\n');
+    setInterval(function () {
+      const s = snapshot();
+      if (s !== stamp) {
+        stamp = s;
+        rebuild();
+      }
+    }, 600);
   }
 
   function collectWidgets(ast, acc) {
@@ -1717,6 +1916,7 @@ const DEMO = [
       if (a === '--ascii') asciiMode = true;
       else if (a === '--help' || a === '-h') cmd = 'help';
       else if (a === 'convert') cmd = 'convert';
+      else if (a === 'build') cmd = 'build';
       else if (a === 'serve') cmd = 'serve';
       else if (a.startsWith('-')) rest.push(a);
       else if (file === null) file = a;
@@ -1730,9 +1930,42 @@ const DEMO = [
       else process.stdout.write(buildPreviewDoc(src) + '\n');
       return;
     }
+    if (cmd === 'build') {
+      const srcDir = file || path.join(__dirname, 'docs');
+      let outDir = null;
+      let base = '';
+      let watch = false;
+      let title = '';
+      let theme = null;
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '-o' || a === '--out') { outDir = rest[++i]; }
+        else if (a === '--base') { base = rest[++i] || ''; }
+        else if (a === '--title') { title = rest[++i] || ''; }
+        else if (a === '--theme') { theme = rest[++i] || null; }
+        else if (a === '--watch') { watch = true; }
+        else if (outDir === null && a.charAt(0) !== '-') { outDir = a; }
+      }
+      if (!outDir) outDir = path.join(__dirname, 'site');
+      const opts = { base: base, title: title, theme: theme };
+      if (watch) return startWatch(srcDir, outDir, opts);
+      try {
+        const r = buildSite(srcDir, outDir, opts);
+        process.stdout.write('md-ui: собрано страниц — ' + r.pages.length + ', файлов ресурсов — ' + r.assets + ' → ' + outDir + '\n');
+      } catch (e) {
+        process.stdout.write('md-ui: ошибка сборки — ' + e.message + '\n');
+        process.exitCode = 1;
+      }
+      return;
+    }
     if (cmd === 'serve') {
-      const port = +rest[0] || 8080;
-      return startServer(port);
+      let port = 8080;
+      let staticDir = null;
+      for (let i = 0; i < rest.length; i++) {
+        if (/^\d+$/.test(rest[i])) port = +rest[i];
+        else if (rest[i].charAt(0) !== '-') staticDir = rest[i];
+      }
+      return startServer(port, staticDir);
     }
     if (cmd === 'tui' || cmd === null) {
       const target = file || path.join(__dirname, 'demo', 'demo.md');
@@ -1753,7 +1986,8 @@ const DEMO = [
       '  node md-ui.js [файл.md]          терминальный редактор (по умолчанию demo/demo.md)',
       '  node md-ui.js convert файл.md    печатает HTML — тот же, что в браузере',
       '  node md-ui.js convert файл.md --body    только содержимое',
-      '  node md-ui.js serve [порт]       веб-сервер (по умолчанию 8080, демо: /demo)',
+      '  node md-ui.js build docs -o site        собрать статический сайт (+ --base URL, --watch)',
+      '  node md-ui.js serve [порт] [каталог]     веб-сервер (демо: /demo или готовый сайт)',
       '  node md-ui.js --ascii            ASCII-режим для простых терминалов',
       '',
       'Виджеты: {Button} · ::: button Запустить green · ::: fold Подробнее',
@@ -1774,37 +2008,62 @@ const DEMO = [
     ].join('\n') + '\n');
   }
 
-  function startServer(port) {
+  function startServer(port, staticDir) {
     const http = require('http');
     const fs = require('fs');
     const path = require('path');
-    const dir = __dirname;
+    const dir = staticDir ? path.resolve(staticDir) : __dirname;
     const mime = {
       '.html': 'text/html; charset=utf-8',
       '.js': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
       '.md': 'text/markdown; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.ico': 'image/x-icon',
+      '.json': 'application/json; charset=utf-8',
+      '.xml': 'application/xml; charset=utf-8',
+      '.txt': 'text/plain; charset=utf-8',
+      '.woff2': 'font/woff2',
     };
     const server = http.createServer(function (req, res) {
       const url = decodeURIComponent((req.url || '/').split('?')[0]);
-      if (url === '/demo') {
+      if (!staticDir && url === '/demo') {
         const demoFile = path.join(dir, 'demo', 'demo.md');
         const src = expandIncludes(fs.readFileSync(demoFile, 'utf8'), path.dirname(demoFile));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(buildPreviewDoc(src));
         return;
       }
-      const rel = url === '/' ? 'mdui.html' : url.slice(1);
+      let rel = staticDir
+        ? (url === '/' ? 'index.html' : url.slice(1))
+        : (url === '/' ? 'mdui.html' : url.slice(1));
       if (!rel || rel.indexOf('..') !== -1) { res.writeHead(403); res.end('403'); return; }
-      const fp = path.join(dir, rel);
+      let fp = path.join(dir, rel);
+      if (staticDir && !path.extname(fp) && fs.existsSync(fp + '.html')) fp += '.html';
       fs.readFile(fp, function (err, data) {
-        if (err) { res.writeHead(404); res.end('404'); return; }
+        if (err) {
+          if (staticDir) {
+            fs.readFile(path.join(dir, '404.html'), function (e2, d2) {
+              res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(e2 ? '404' : d2);
+            });
+            return;
+          }
+          res.writeHead(404); res.end('404'); return;
+        }
         const ext = path.extname(fp);
         res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
         res.end(data);
       });
     });
     server.listen(port, function () {
-      process.stdout.write('md-ui serve → http://localhost:' + port + '  (демо: /demo)\n');
+      process.stdout.write('md-ui serve → http://localhost:' + port +
+        (staticDir ? '  (каталог: ' + staticDir + ')' : '  (демо: /demo)') + '\n');
     });
   }
 
@@ -2060,6 +2319,11 @@ const DEMO = [
     expandIncludes: expandIncludes,
     buildPreviewDoc: buildPreviewDoc,
     buildBodyHTML: buildBodyHTML,
+    buildSite: buildSite,
+    seoDoc: seoDoc,
+    rewriteMdLinks: rewriteMdLinks,
+    collectMdFiles: collectMdFiles,
+    SITE_RUNTIME_JS: SITE_RUNTIME_JS,
     renderANSI: renderANSI,
     collectWidgets: collectWidgets,
     collectVars: collectVars,
@@ -2071,6 +2335,7 @@ const DEMO = [
     themeVars: themeVars,
     openTui: openTui,
     runCli: runCli,
+    startServer: startServer,
     setAscii: function (v) { asciiMode = v; },
   };
 
